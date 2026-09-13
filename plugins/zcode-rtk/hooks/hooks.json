@@ -1,0 +1,37 @@
+{
+  "description": "两组钩子：①SessionStart 时若 rtk 升级导致官方提示词 RTK.md 变化，自动重同步 ~/.zcode/AGENTS.md（静默幂等）；②PreToolUse(Bash) 调用 rtk rewrite（官方 hooks 唯一事实来源，rc=3=有改写）判断命令，有等价改写则 exit 2 拦截并在 stderr 给出改写后命令（rtk 官方对受限代理的 deny-with-suggestion 方案）。fail-open：rtk 未装、解析失败、mode=off、已套 rtk、输出被重定向进文件或用于命令替换时一律放行。",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "process",
+            "command": "/bin/sh",
+            "args": [
+              "${ZCODE_PLUGIN_ROOT}/hooks/sync-rtk-prompt.sh"
+            ],
+            "timeoutMs": 5000,
+            "statusMessage": "rtk: 校验全局提示词…"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "process",
+            "command": "/bin/sh",
+            "args": [
+              "${ZCODE_PLUGIN_ROOT}/hooks/rtk-pretooluse.sh"
+            ],
+            "timeoutMs": 10000,
+            "statusMessage": "rtk: 检查是否可压缩…"
+          }
+        ]
+      }
+    ]
+  }
+}
