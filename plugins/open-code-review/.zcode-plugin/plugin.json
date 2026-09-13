@@ -1,0 +1,10 @@
+{
+  "name": "open-code-review",
+  "version": "1.0.0",
+  "description": "集成 OpenCodeReview (ocr) CLI：对 Git 变更做行级 AI 代码评审。委托模式由 ZCode 自身模型执行评审，无需为 ocr 单独配置 LLM。",
+  "author": {
+    "name": "z"
+  },
+  "commands": "./commands",
+  "skills": "./skills"
+}
