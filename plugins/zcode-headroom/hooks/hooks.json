@@ -1,0 +1,19 @@
+{
+  "description": "会话启动时确保 Headroom 压缩代理在运行：已监听则跳过，未装 headroom 则静默跳过，否则后台拉起（上游默认 GLM open.bigmodel.cn）。环境变量可覆盖：HEADROOM_PROXY_PORT / HEADROOM_PROXY_AUTOSTART=0 / HEADROOM_UPSTREAM_ANTHROPIC / HEADROOM_UPSTREAM_OPENAI。",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "process",
+            "command": "/bin/sh",
+            "args": ["${ZCODE_PLUGIN_ROOT}/hooks/ensure-proxy.sh"],
+            "timeoutMs": 5000,
+            "statusMessage": "Headroom: 检查压缩代理…"
+          }
+        ]
+      }
+    ]
+  }
+}

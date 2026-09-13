@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "headroom": {
+      "type": "stdio",
+      "command": "headroom",
+      "args": ["mcp", "serve"]
+    }
+  }
+}

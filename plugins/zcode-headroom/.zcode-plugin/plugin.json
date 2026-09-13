@@ -1,0 +1,11 @@
+{
+  "name": "zcode-headroom",
+  "version": "1.0.0",
+  "description": "接入 Headroom 本地压缩代理：SessionStart 自动拉起代理（上游指向 GLM open.bigmodel.cn），.mcp.json 注册官方 headroom mcp serve（CCR 取回工具）。/hr-setup 含自定义供应商逐步配置（须新建供应商，API 格式选 Anthropic Messages）。",
+  "author": {
+    "name": "z"
+  },
+  "commands": "./commands",
+  "skills": "./skills",
+  "hooks": "./hooks"
+}
