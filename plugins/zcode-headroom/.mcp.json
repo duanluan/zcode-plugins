@@ -2,8 +2,11 @@
   "mcpServers": {
     "headroom": {
       "type": "stdio",
-      "command": "headroom",
-      "args": ["mcp", "serve"]
+      "command": "/bin/sh",
+      "args": [
+        "-c",
+        "for c in \"$(command -v headroom 2>/dev/null)\" \"$HOME/.local/bin/headroom\" \"$HOME/miniforge3/bin/headroom\" \"$HOME/.cargo/bin/headroom\" /usr/local/bin/headroom /usr/bin/headroom; do [ -x \"$c\" ] && exec \"$c\" mcp serve; done; exit 127"
+      ]
     }
   }
 }
