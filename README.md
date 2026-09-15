@@ -105,7 +105,7 @@ ocr llm test
 
 ### 自动启动
 
-插件 SessionStart 钩子每次会话启动检测 8787 端口，代理没跑就后台拉起。环境变量可覆盖：`HEADROOM_PROXY_PORT`、`HEADROOM_PROXY_AUTOSTART=0`（关闭）、`HEADROOM_UPSTREAM_ANTHROPIC`（上游地址）。
+长期使用建议为代理配置 **systemd 用户服务**（开机自启、随登录拉起、崩溃自动重启；`/hr-setup` 第 2 步含完整 unit 内容）——`nohup` 方式起的进程在重启电脑后会丢失，导致 ZCode 提示"重新连接中"。此外插件自带 SessionStart 钩子兜底：每次会话启动检测 8787 端口，代理没跑就在后台拉起（按常见安装位置查找 headroom，不依赖 PATH）。环境变量可覆盖：`HEADROOM_PROXY_PORT`、`HEADROOM_PROXY_AUTOSTART=0`（关闭）、`HEADROOM_UPSTREAM_ANTHROPIC`（上游地址）。
 
 ---
 
