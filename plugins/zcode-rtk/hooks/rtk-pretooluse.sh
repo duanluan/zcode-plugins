@@ -9,8 +9,20 @@ set -u
 
 input=$(cat 2>/dev/null) || input=""
 [ -n "$input" ] || exit 0
-command -v rtk >/dev/null 2>&1 || exit 0
 command -v python3 >/dev/null 2>&1 || exit 0
+
+# 定位 rtk：桌面启动的 ZCode 环境可能不含用户级 PATH（~/.local/bin 等），
+# PATH 找不到时扫描常见安装位置；仍找不到则放行（fail-open）
+RTK=""
+if command -v rtk >/dev/null 2>&1; then
+  RTK=$(command -v rtk)
+else
+  for c in "${HOME:-}/.local/bin/rtk" "${HOME:-}/miniforge3/bin/rtk" \
+           /usr/local/bin/rtk /usr/bin/rtk; do
+    if [ -x "$c" ]; then RTK="$c"; break; fi
+  done
+fi
+[ -n "$RTK" ] || exit 0
 
 cmd=$(printf '%s' "$input" | python3 -c '
 import json, sys
@@ -43,7 +55,7 @@ case "$no_sink" in
 esac
 
 # 由 rtk 判断：rc=3 且输出非空 = 有等价改写；rc=1 / 无输出 = rtk 认为不必改写
-rewritten=$(rtk rewrite "$cmd" 2>/dev/null)
+rewritten=$("$RTK" rewrite "$cmd" 2>/dev/null)
 rc=$?
 [ "$rc" -eq 3 ] || exit 0
 [ -n "$rewritten" ] || exit 0

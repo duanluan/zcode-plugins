@@ -22,16 +22,38 @@ command -v headroom && headroom --version
 2. `pipx install "headroom-ai[all]"`
 3. `pip install --user "headroom-ai[all]"`（要求 Python ≥ 3.10）
 
-## 第 2 步：启动代理（后台、上游指向 GLM）
+## 第 2 步：启动代理（上游指向 GLM，开机自启优先）
+
+**优先：systemd 用户服务**（开机自启、随登录拉起、崩溃自动重启——`nohup` 起的进程重启电脑后会丢失，导致 ZCode 提示"重新连接中"）：
+
+```bash
+HR=$(command -v headroom || echo "$HOME/.local/bin/headroom")
+mkdir -p ~/.config/systemd/user && cat > ~/.config/systemd/user/headroom-proxy.service <<UNIT
+[Unit]
+Description=Headroom compression proxy (127.0.0.1:8787 -> GLM)
+After=network-online.target
+
+[Service]
+ExecStart=$HR proxy --port 8787
+Environment=ANTHROPIC_TARGET_API_URL=https://open.bigmodel.cn/api/anthropic
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target
+UNIT
+systemctl --user daemon-reload && systemctl --user enable --now headroom-proxy
+```
+
+systemd 不可用（无 systemd 用户会话）时退回 nohup：
 
 ```bash
 ANTHROPIC_TARGET_API_URL=https://open.bigmodel.cn/api/anthropic \
 nohup headroom proxy --port 8787 >> ~/.zcode-headroom-proxy.log 2>&1 &
 ```
 
-- **只设 Anthropic 上游**：ZCode 侧必须用 Anthropic（Messages）格式；OpenAI/Chat Completions 格式无法用于 bigmodel——headroom 转发保留客户端 `/v1` 前缀，bigmodel 无该路径（必 404）
-- 端口被占用时：`curl -s http://127.0.0.1:8787/` 有响应就复用现有代理，**不要重复拉起**（SessionStart 钩子也会做同样的事）
-- 用户给了 `--upstream-anthropic` 时替换对应 env；给了 `--port` 时同步替换
+- 端口被占用时：`curl -s http://127.0.0.1:8787/health` 有响应就复用现有代理，**不要重复拉起**（SessionStart 钩子也会做同样的事）
+- 用户给了 `--upstream-anthropic` 时替换 env；给了 `--port` 时同步替换
 - 也可用官方命令起代理并打印 ZCode 配置（不重复起代理）：`headroom wrap zcode --no-proxy --port 8787`
 
 ## 第 3 步：验证代理
