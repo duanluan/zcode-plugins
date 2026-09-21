@@ -9,12 +9,13 @@ ZCode 插件市场，市场名 `duanluan-zcode-plugins`。围绕 token 效率与
 | **open-code-review** | 集成 [OpenCodeReview (ocr)](https://github.com/alibaba/open-code-review)：Git 变更行级 AI 代码评审。委托模式由 ZCode 自身模型评审，**无需为 ocr 配置 LLM** | `/ocr-delegate-review`、`/ocr-review`、`/ocr-scan`、`/ocr <任意子命令>` |
 | **zcode-headroom** | 接入 [Headroom](https://github.com/headroomlabs-ai/headroom) 本地压缩代理：ZCode 的 LLM 请求先压缩再转发 GLM；SessionStart 自动拉起代理；注册官方 CCR 取回工具 | `/hr-setup`、`/hr-status`、`/hr-proxy`、`/hr <任意子命令>` |
 | **zcode-rtk** | 接入 [rtk](https://github.com/rtk-ai/rtk)（Rust 单二进制）：常见开发命令输出压缩 60-90%；何时压缩完全由 rtk 官方提示词与 `rtk rewrite` 决定 | `/rtk-install`、`/rtk-status`、`/rtk <on\|off\|gain\|uninstall>` |
+| **zcode-agentteams** | 接入 [AgentTeams](https://github.com/agentscope-ai/AgentTeams) 多智能体协作平台：`/at-install` 可一键部署平台本体，活动面板可视化项目/队长/成员/任务依赖 DAG | `/at-install`、`/at-setup`、`/at-dashboard`、`/at-status`、`/at <agt 子命令>` |
 
 所有命令的菜单简介里都带用法示例；大部分参数原样透传给底层 CLI。
 
 ## 安装
 
-前置：Git ≥ 2.41。命令行工具按需自动安装（ocr 缺失时自动 `npm i -g`，headroom/rtk 缺失时由各自的 install 命令安装）。
+前置：Git ≥ 2.41。各插件依赖的底层工具都由插件自己带安装命令，不用手动装：ocr 缺失时自动 `npm i -g`；headroom 缺失时 `/hr-setup` 按 uv → pipx → pip 兜底安装；rtk 由 `/rtk-install` 跑官方 install.sh；AgentTeams 平台本体是一套 Docker 容器栈（不是单文件 CLI），`/at-install` 封装官方脚本一键部署，前置 Docker 和一个 LLM API Key（暂不想部署可先 `/at-dashboard demo` 看面板效果）。
 
 1. ZCode → 设置 → 插件管理 → 右上角「+」→ 添加插件市场，填 GitHub 仓库：
    `duanluan/zcode-plugins`
@@ -127,3 +128,52 @@ ocr llm test
 ```
 
 日常无需任何操作：正常跑命令，钩子给出"[rtk] 改用以下等价命令"时照做即可。主动压缩就给命令加 `rtk ` 前缀（如 `rtk git status`）；被压缩的输出结果不可用时按提示 `rtk proxy <原命令>` 取原文。
+
+---
+
+## zcode-agentteams：多智能体协作可视化
+
+**原理**：接入 [AgentTeams](https://github.com/agentscope-ai/AgentTeams)（Manager-Workers 多智能体协作平台，Matrix 房间协作 + Controller 控制面）。插件在本地起一个零依赖 Node 服务（127.0.0.1:8712）聚合 Controller 只读 API，浏览器里实时看项目进展。数据源自动适配，优先级：**AgentTeams Controller（projects 模型，任务 DAG 全功能）→ 本地 Docker 控制面（`/at-install` 装的稳定栈，旧品牌 HiClaw：teams/workers 模型，展示队长/成员/团队实时状态，无 tasks API 时 DAG 区显示说明）→ `agt get projects -o json` 兜底 → 演示数据**。`controllerUrl` 支持 `docker://容器名`（自动 docker inspect 解析容器 IP，不怕 Docker 重启 IP 漂移）。
+
+三层关系一句话说清：**市场装的是插件**（面板 + 命令，无外部依赖）；**AgentTeams 平台本体要单独部署**（`/at-install` 封装官方 install.sh，前置 Docker + LLM API Key，或官方 Helm/K8s 路线）；**部署完 `/at-setup` 接线**（填 Controller 地址与 token），面板即从演示数据切到真实项目。
+
+### 部署平台本体 `/at-install`
+
+```bash
+/at-install --use-zcode-key                      # 复用 ZCode 已存的 GLM Key（零新购，Coding Plan 额度）
+/at-install --key sk-xxx --base-url https://open.bigmodel.cn/api/paas/v4 --model glm-5.3-flash   # 独立 Key
+/at-install --interactive                        # 想逐项自定义：给命令在自己终端跑
+/at-install uninstall                            # 停止并移除 Manager + 全部 Worker
+```
+
+Key 说明：裸跑 `/at-install` 会先问「Key 用哪种」（复用 ZCode 已存 / 粘贴 GLM Key / 其他家）。Worker 是常驻容器自己调模型，端点+Key 不可省，但**推荐复用 ZCode 的 GLM Key**（OpenAI 兼容端点自动换成 Coding Plan 的 `/api/coding/paas/v4`，会员额度照常，同 ocr 委托模式的复用逻辑）；给 `--key` 时默认也按 GLM 处理（coding 端点 + `glm-5.3-flash`）。多 Worker 并发会加速这份额度的消耗。
+
+非交互封装官方 `agentteams-install.sh`（HiClaw 是 AgentTeams 更名前的旧名，本命令一律用官方新安装器）：自动下载脚本、写入 600 权限的 env（Key 不进 shell 历史）、后台安装并落日志 `~/.zcode-agentteams/install.log`。Docker 未装时给发行版指引（需要 sudo，插件不代办）；装完从日志取访问地址（默认 Element Web 18088 / 网关 18080 / Manager 控制台 18888）与 admin 密码，再自动接线或走 `/at-setup`。
+
+### 可视化面板 `/at-dashboard`
+
+暖白卡片风格面板，内容自上而下：项目卡（成员数/完成度/消息数）→ 队长卡（派发数/执行中人数）→ 总进度条（运行中/等待派发/已交付等 6 态分段）→ 成员卡（状态/进度/队长派发的任务 chip）→ **任务依赖 DAG**（分层布局贝塞尔连线，**悬停高亮上游依赖链、点击固定**并联动底部任务详情：负责人/等待的依赖/完成后解锁谁/工件下载）。默认 5 秒自动刷新，可暂停。
+
+```
+/at-dashboard status            # 是否在线、数据源模式
+/at-dashboard start             # 后台启动并给出面板地址
+/at-dashboard --float           # 浏览器 app 模式无边框小窗 + X11 置顶（悬浮效果）
+/at-dashboard demo              # 演示数据模式（无需 Controller，先看界面效果）
+/at-dashboard stop              # 停止
+```
+
+ZCode 插件没有往 ZCode 界面里嵌自定义面板的能力（插件只有命令/skill/钩子/MCP 四种挂载面），所以完整界面走本地 Web；ZCode 内部看进展用 `/at-status`（对话内 markdown 进度卡）。
+
+### 接入 `/at-setup`
+
+写 `~/.zcode-agentteams/config.json`（Controller 地址、token/tokenFile、team、port、refreshSeconds）→ 验证连通性 → 启动面板。鉴权是 Bearer token（K8s ServiceAccount token 或 Matrix access token），推荐只存 token 文件路径。配好后 SessionStart 钩子每次会话静默拉起面板（`AGENTTEAMS_DASHBOARD_AUTOSTART=0` 关闭）。
+
+### CLI 透传 `/at`
+
+```
+/at get projects                    # 项目列表
+/at get projects <id> -o json       # workflow：节点/边/任务详情
+/at get projects <id> --mermaid     # 依赖图 mermaid 文本
+/at project pause|resume|replan|cancel|complete <id>
+/at spawn messages <sessionId>      # 成员会话消息流
+```

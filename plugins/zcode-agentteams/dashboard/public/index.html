@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AgentTeams 活动</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="dot" id="status-dot"></span>
+      <h1>AgentTeams 活动</h1>
+      <span class="badge badge-demo hidden" id="demo-badge">演示数据</span>
+    </div>
+    <div class="topbar-right">
+      <span class="updated" id="updated"></span>
+      <button id="pause-btn" class="ghost-btn" type="button">暂停</button>
+      <select id="project-select" class="project-select" title="切换项目"></select>
+    </div>
+  </header>
+
+  <main id="main">
+    <div id="error-banner" class="error-banner hidden"></div>
+    <div id="content"><div class="loading">正在加载 AgentTeams 状态…</div></div>
+  </main>
+
+  <section id="detail" class="detail-panel hidden" aria-live="polite"></section>
+
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+{
+  "description": "会话启动时静默拉起 AgentTeams 活动面板（仅当 ~/.zcode-agentteams/config.json 已存在时才会启动；端口已在线则跳过）。环境变量可覆盖：AGENTTEAMS_DASHBOARD_PORT / AGENTTEAMS_DASHBOARD_AUTOSTART=0。",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "process",
+            "command": "/bin/sh",
+            "args": ["${ZCODE_PLUGIN_ROOT}/hooks/ensure-dashboard.sh"],
+            "timeoutMs": 5000,
+            "statusMessage": "AgentTeams: 检查活动面板…"
+          }
+        ]
+      }
+    ]
+  }
+}

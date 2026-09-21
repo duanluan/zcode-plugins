@@ -1,0 +1,11 @@
+{
+  "name": "zcode-agentteams",
+  "version": "1.0.0",
+  "description": "接入 AgentTeams 多智能体协作平台（github.com/agentscope-ai/AgentTeams）：/at-install 一键部署平台本体（官方 install.sh 非交互封装，前置 Docker + LLM Key）；本地可视化活动面板（项目/队长/成员/任务依赖 DAG），数据来自 Controller 只读 API 或 agt CLI。/at-setup 配置、/at-dashboard 管理面板、/at 透传 agt 子命令。",
+  "author": {
+    "name": "z"
+  },
+  "commands": "./commands",
+  "skills": "./skills",
+  "hooks": "./hooks"
+}

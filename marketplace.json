@@ -43,6 +43,19 @@
         "token",
         "compression"
       ]
+    },
+    {
+      "name": "zcode-agentteams",
+      "source": "./zcode-agentteams",
+      "version": "1.0.0",
+      "description": "接入 AgentTeams 多智能体协作平台：/at-install 一键部署平台本体（Docker + LLM Key），本地可视化活动面板（项目/队长/成员/任务依赖 DAG，悬停高亮依赖链），数据来自 Controller 只读 API 或 agt CLI，含演示模式与 agt 命令透传。",
+      "category": "developer-tools",
+      "tags": [
+        "agentteams",
+        "multi-agent",
+        "dashboard",
+        "visualization"
+      ]
     }
   ]
 }
