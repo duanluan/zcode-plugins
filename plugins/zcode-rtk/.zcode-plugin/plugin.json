@@ -1,7 +1,7 @@
 {
   "name": "zcode-rtk",
-  "version": "1.0.0",
-  "description": "接入真 rtk（github.com/rtk-ai/rtk）：SessionStart 自动跟随 rtk 升级重同步官方全局提示词 RTK.md → ~/.zcode/AGENTS.md；PreToolUse 钩子按 rtk rewrite 官方判断递改写建议（输出进文件/命令替换时不改写）。命令：/rtk-install、/rtk-status、/rtk <on|off|gain|uninstall>。",
+  "version": "1.0.1",
+  "description": "接入真 rtk（github.com/rtk-ai/rtk）：SessionStart 自动跟随 rtk 升级重同步官方全局提示词 RTK.md → ~/.zcode/AGENTS.md；PreToolUse 钩子按 rtk rewrite 官方判断递改写建议（每命令每会话仅提醒一次，原样重跑即放行；下载到文件、输出进文件/命令替换时不改写）。命令：/rtk-install、/rtk-status、/rtk <on|off|gain|uninstall>。",
   "author": {
     "name": "z"
   },
