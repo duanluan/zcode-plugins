@@ -1,5 +1,5 @@
 {
-  "description": "两组钩子：①SessionStart 时若 rtk 升级导致官方提示词 RTK.md 变化，自动重同步 ~/.zcode/AGENTS.md（静默幂等）；②PreToolUse(Bash) 调用 rtk rewrite（官方 hooks 唯一事实来源，rc=3=有改写）判断命令，有等价改写则 exit 2 拦截并在 stderr 给出改写后命令（rtk 官方对受限代理的 deny-with-suggestion 方案）。fail-open：rtk 未装、解析失败、mode=off、已套 rtk、输出被重定向进文件或用于命令替换时一律放行。",
+  "description": "两组钩子：①SessionStart 时若 rtk 升级导致官方提示词 RTK.md 变化，自动重同步 ~/.zcode/AGENTS.md（静默幂等）；②PreToolUse(Bash) 调用 rtk rewrite（官方 hooks 唯一事实来源，rc=3=有改写）判断命令，有等价改写则 exit 2 拦截并在 stderr 给出改写后命令（rtk 官方对受限代理的 deny-with-suggestion 方案）。同一会话同一条命令最多提醒一次：原样重跑原命令即放行，提醒记录存 ${RTK_DIR:-~/.zcode-rtk}/reminded/（超 128 条清最旧一半，写不进记录时不拦截）。fail-open：rtk 未装、解析失败、mode=off、已套 rtk、管道限量、输出进文件/命令替换、输出已丢弃（裸 >/dev/null）、下载到文件（wget；curl 带 -o/-O/--output）时一律放行。",
   "hooks": {
     "SessionStart": [
       {

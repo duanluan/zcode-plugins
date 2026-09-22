@@ -34,8 +34,8 @@
     {
       "name": "zcode-rtk",
       "source": "./zcode-rtk",
-      "version": "1.0.0",
-      "description": "命令输出源头压缩：PreToolUse 钩子拦截典型大输出命令并提示 rtk 包装；rtk 把大输出压成摘要+落盘，小输出零开销透传。",
+      "version": "1.0.1",
+      "description": "命令输出源头压缩：PreToolUse 钩子提示用 rtk 包装典型大输出命令（每命令每会话仅提醒一次，原样重跑即放行）；rtk 把大输出压成摘要+落盘，小输出零开销透传。",
       "category": "developer-tools",
       "tags": [
         "rtk",
