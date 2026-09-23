@@ -16,7 +16,7 @@ ZCode 插件市场，市场名 `duanluan-zcode-plugins`。围绕 token 效率与
 
 前置：Git ≥ 2.41。命令行工具按需自动安装（ocr 缺失时自动 `npm i -g`，headroom/rtk 缺失时由各自的 install 命令安装）。
 
-1. ZCode → 设置 → 插件管理 → 右上角「+」→ 添加插件市场，填 GitHub 仓库：
+1. ZCode → 插件市场 → 右上角「添加」→ 添加插件市场，填写：
    `duanluan/zcode-plugins`
 2. 找到 **duanluan-zcode-plugins** 市场，安装需要的插件并启用
 
