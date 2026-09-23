@@ -127,3 +127,20 @@ ocr llm test
 ```
 
 日常无需任何操作：正常跑命令，钩子给出"[rtk] 改用以下等价命令"时照做即可。主动压缩就给命令加 `rtk ` 前缀（如 `rtk git status`）；被压缩的输出结果不可用时按提示 `rtk proxy <原命令>` 取原文。
+
+---
+
+## 相关项目
+
+- [zcode-pro](https://github.com/duanluan/zcode-pro)：ZCode 桌面版界面增强工具——项目自定义别名、切换文件夹、会话排序、文件菜单增强、界面样式微调与全局提示词等；不修改官方应用文件，退出后自动恢复。
+
+## 交流与反馈
+
+- QQ 群：**428403354**（[点击加入](https://qm.qq.com/q/WXuISJK3ug)）
+- 微信群：添加微信 **ai4only** 邀请进群
+
+<p>
+  <img src="assets/qq-group.png" width="200" alt="QQ 群二维码" />
+  &nbsp;&nbsp;
+  <img src="assets/wechat-ai4only.png" width="200" alt="微信二维码（ai4only）" />
+</p>
