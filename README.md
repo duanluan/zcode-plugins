@@ -7,8 +7,8 @@ ZCode 插件市场，市场名 `duanluan-zcode-plugins`。围绕 token 效率与
 | 插件 | 作用 | 命令 |
 |---|---|---|
 | **open-code-review** | 集成 [OpenCodeReview (ocr)](https://github.com/alibaba/open-code-review)：Git 变更行级 AI 评审。委托模式由 ZCode 自身模型评审，**无需为 ocr 配置 LLM** | `/ocr-delegate-review`、`/ocr-review`、`/ocr-scan`、`/ocr <任意子命令>` |
-| **zcode-headroom** | 接入 [Headroom](https://github.com/headroomlabs-ai/headroom) 本地压缩代理：ZCode 的 LLM 请求先压缩再转发 GLM；SessionStart 自动拉起代理；注册官方 CCR 取回工具 | `/hr-setup`、`/hr-status`、`/hr-proxy`、`/hr <任意子命令>` |
-| **zcode-rtk** | 接入 [rtk](https://github.com/rtk-ai/rtk)（Rust 单二进制）：常见开发命令输出压缩 60-90%；何时压缩完全由 rtk 官方提示词与 `rtk rewrite` 决定 | `/rtk-install`、`/rtk-status`、`/rtk <on\|off\|gain\|uninstall>` |
+| **headroom** | 接入 [Headroom](https://github.com/headroomlabs-ai/headroom) 本地压缩代理：ZCode 的 LLM 请求先压缩再转发 GLM；SessionStart 自动拉起代理；注册官方 CCR 取回工具 | `/hr-setup`、`/hr-status`、`/hr-proxy`、`/hr <任意子命令>` |
+| **rtk** | 接入 [rtk](https://github.com/rtk-ai/rtk)（Rust 单二进制）：常见开发命令输出压缩 60-90%；何时压缩完全由 rtk 官方提示词与 `rtk rewrite` 决定 | `/rtk-install`、`/rtk-status`、`/rtk <on\|off\|gain\|uninstall>` |
 | **zcode-vision** | 图片视觉代理：主模型不支持图片输入时（如 glm-5.3），自动把图片交给视觉模型识别并把描述注入对话 | `/vision-setup`、`/vision-proxy`、`/vision-chain`、`/vision <on\|off\|status\|test>` |
 
 所有命令的菜单简介里都带用法示例；大部分参数原样透传给底层 CLI。
@@ -76,7 +76,7 @@ ocr llm test
 
 ---
 
-## zcode-headroom：请求层压缩代理
+## headroom：请求层压缩代理
 
 **原理**：ZCode → Headroom 代理（127.0.0.1:8787，本地压缩工具输出/日志/大 JSON）→ 智谱 GLM（`open.bigmodel.cn/api/anthropic`）。鉴权头原样转发，**GLM 会员额度照常**。
 
@@ -110,7 +110,7 @@ ocr llm test
 
 ---
 
-## zcode-rtk：命令输出源头压缩
+## rtk：命令输出源头压缩
 
 **原理**：rtk（Rust 单二进制，100+ 命令过滤器）在命令输出**进入对话之前**压缩 60-90%，与 headroom（请求层）互补。"何时压缩、怎么压缩"完全由 rtk 官方机制决定，插件只负责安装与接线：
 

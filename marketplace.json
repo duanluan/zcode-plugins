@@ -1,6 +1,6 @@
 {
   "name": "duanluan-zcode-plugins",
-  "description": "本地插件市场：open-code-review、zcode-headroom 及后续自制 ZCode 插件统一放这里。",
+  "description": "本地插件市场：open-code-review、headroom 及后续自制 ZCode 插件统一放这里。",
   "metadata": {
     "pluginRoot": "plugins"
   },
@@ -19,8 +19,8 @@
       ]
     },
     {
-      "name": "zcode-headroom",
-      "source": "./zcode-headroom",
+      "name": "headroom",
+      "source": "./headroom",
       "version": "1.0.0",
       "description": "接入 Headroom 本地压缩代理：自动安装/启动，ZCode 请求经代理压缩后转发 GLM，减少 token 消耗。含 SessionStart 自动拉起与 /hr-* 管理命令。",
       "category": "developer-tools",
@@ -32,8 +32,8 @@
       ]
     },
     {
-      "name": "zcode-rtk",
-      "source": "./zcode-rtk",
+      "name": "rtk",
+      "source": "./rtk",
       "version": "1.1.0",
       "description": "命令输出源头压缩：PreToolUse 钩子提示用 rtk 包装典型大输出命令（每命令每会话仅提醒一次，原样重跑即放行）；rtk 把大输出压成摘要+落盘，小输出零开销透传。",
       "category": "developer-tools",
