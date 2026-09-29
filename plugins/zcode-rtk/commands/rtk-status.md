@@ -13,6 +13,7 @@ rtk --version 2>/dev/null || echo 未安装
 command -v rtk
 cat ~/.zcode-rtk/mode 2>/dev/null || echo hint
 grep -c 'rtk:start' ~/.zcode/AGENTS.md 2>/dev/null || echo 0
+cat ~/.zcode-rtk/whitelist 2>/dev/null || echo 空
 rtk gain $ARGUMENTS 2>/dev/null | tail -8 || rtk stats $ARGUMENTS 2>/dev/null | tail -8 || true
 ```
 
@@ -23,6 +24,7 @@ rtk gain $ARGUMENTS 2>/dev/null | tail -8 || rtk stats $ARGUMENTS 2>/dev/null | 
 | rtk 版本 | ✓ 0.49.0 | 路径 ~/.local/bin/rtk |
 | 钩子模式 | 开启（hint）/ 关闭（off） | off 时钩子放行一切，手动 `rtk <命令>` 不受影响 |
 | 全局提示词 | 已同步 / 未同步 | `~/.zcode/AGENTS.md` 中 `<!-- rtk:start/end -->` 块 |
+| 白名单 | N 条自定义 / 未自定义 | `~/.zcode-rtk/whitelist`（低价值命令直接放行不提醒，`/rtk whitelist` 管理） |
 | 累计节省 | … tokens（…%） | rtk 自身统计（gain），最近命令可见时一并列出 |
 
 ## 结论与引导

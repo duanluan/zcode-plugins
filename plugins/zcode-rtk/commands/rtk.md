@@ -1,6 +1,6 @@
 ---
-description: rtk 管理动作：/rtk on|off ｜ /rtk gain ｜ /rtk uninstall（状态看 /rtk-status，安装看 /rtk-install）。rtk（github.com/rtk-ai/rtk）把常见开发命令输出压缩 60-90%
-argument-hint: <on|off|gain|uninstall> [参数]
+description: rtk 管理动作：/rtk on|off ｜ /rtk gain ｜ /rtk whitelist ｜ /rtk uninstall（状态看 /rtk-status，安装看 /rtk-install）。rtk（github.com/rtk-ai/rtk）把常见开发命令输出压缩 60-90%
+argument-hint: <on|off|gain|whitelist|uninstall> [参数]
 allowed-tools: Bash(rtk:*), Bash(cat:*), Bash(printf:*), Bash(python3:*), Bash(ls:*), Bash(command -v:*), Bash(rm:*)
 ---
 
@@ -10,7 +10,7 @@ allowed-tools: Bash(rtk:*), Bash(cat:*), Bash(printf:*), Bash(python3:*), Bash(l
 
 ## 设计原则
 
-"何时压缩、怎么压缩"完全由 rtk 自己的全局提示词（RTK.md）和 `rtk rewrite` 决定，本插件不自己发明规则；PreToolUse 钩子按 `rtk rewrite` 的判断递改写建议。
+"何时压缩、怎么压缩"完全由 rtk 自己的全局提示词（RTK.md）和 `rtk rewrite` 决定，本插件不自己发明压缩规则；PreToolUse 钩子按 `rtk rewrite` 的判断递改写建议，仅额外放行一层白名单——纯副作用或输出极小的命令（如 `git add`/`git commit`/`mkdir`，整条命令逐段全命中才放行），拦它们没有压缩收益，deny 提示反而会误导模型把正常命令拆散重跑。
 
 ## 动作
 
@@ -21,6 +21,16 @@ allowed-tools: Bash(rtk:*), Bash(cat:*), Bash(printf:*), Bash(python3:*), Bash(l
 ### gain
 
 `rtk gain $ARGUMENTS 2>/dev/null || rtk stats $ARGUMENTS 2>/dev/null`——展示 rtk 自己统计的 token 节省（以实际支持的子命令为准，`rtk --help` 可查）。
+
+### whitelist
+
+管理钩子的低价值命令白名单（文件 `${RTK_DIR:-~/.zcode-rtk}/whitelist`，不存在视为空，改动即时生效——钩子每次执行都重读）。内置清单（git 变更类子命令 add/commit/push/branch 新建删除/merge 等、mkdir/cp/mv/rm/chmod/sleep 等纯副作用命令）不可增删，此处只管理用户追加条目，每行一条：
+
+- `name`：匹配每段命令的首个词（如 `docker`、`terraform`，该命令全家都放行）
+- `git:name`：匹配 git 子命令（如 `git:clone`），优先于内置形态检查（会跳过 branch/tag 等的列举形态检查）
+- `#` 开头为注释，空行忽略；不符合 `name` / `git:name` 格式的行会被钩子静默忽略
+
+动作：缺省 = show（列内置清单摘要、用户条目与文件路径）；`add <条目>…`（校验格式、去重追加，目录不存在先建）；`remove <条目>…`（只删用户条目，提示内置条目不可删）；`reset`（清空用户条目）。增删改用 python3 读写文件（保留注释与原有顺序），完成后 `cat` 确认并告知改动即时生效。
 
 ### uninstall
 
