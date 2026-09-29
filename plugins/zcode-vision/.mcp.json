@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "vision": {
+      "command": "/bin/sh",
+      "args": [
+        "${ZCODE_PLUGIN_ROOT}/hooks/vision-mcp.sh",
+        "${ZCODE_PLUGIN_ROOT}/hooks/vision-mcp.mjs"
+      ]
+    }
+  }
+}
