@@ -1,14 +1,15 @@
 # zcode-plugins
 
-ZCode 插件市场，市场名 `duanluan-zcode-plugins`。围绕 token 效率与代码质量构建：rtk 在源头压缩命令输出，Headroom 在请求层压缩对话历史，GLM Coding Plan 提供模型额度；OpenCodeReview 提供 Git 变更的行级代码评审。
+ZCode 插件市场，市场名 `duanluan-zcode-plugins`。围绕 token 效率与代码质量构建：rtk 在源头压缩命令输出，Headroom 在请求层压缩对话历史，zcode-vision 让纯文本模型也能读懂图片，GLM Coding Plan 提供模型额度；OpenCodeReview 提供 Git 变更的行级代码评审。
 
 ## 插件一览
 
 | 插件 | 作用 | 命令 |
 |---|---|---|
-| **open-code-review** | 集成 [OpenCodeReview (ocr)](https://github.com/alibaba/open-code-review)：Git 变更行级 AI 代码评审。委托模式由 ZCode 自身模型评审，**无需为 ocr 配置 LLM** | `/ocr-delegate-review`、`/ocr-review`、`/ocr-scan`、`/ocr <任意子命令>` |
+| **open-code-review** | 集成 [OpenCodeReview (ocr)](https://github.com/alibaba/open-code-review)：Git 变更行级 AI 评审。委托模式由 ZCode 自身模型评审，**无需为 ocr 配置 LLM** | `/ocr-delegate-review`、`/ocr-review`、`/ocr-scan`、`/ocr <任意子命令>` |
 | **zcode-headroom** | 接入 [Headroom](https://github.com/headroomlabs-ai/headroom) 本地压缩代理：ZCode 的 LLM 请求先压缩再转发 GLM；SessionStart 自动拉起代理；注册官方 CCR 取回工具 | `/hr-setup`、`/hr-status`、`/hr-proxy`、`/hr <任意子命令>` |
 | **zcode-rtk** | 接入 [rtk](https://github.com/rtk-ai/rtk)（Rust 单二进制）：常见开发命令输出压缩 60-90%；何时压缩完全由 rtk 官方提示词与 `rtk rewrite` 决定 | `/rtk-install`、`/rtk-status`、`/rtk <on\|off\|gain\|uninstall>` |
+| **zcode-vision** | 图片视觉代理：主模型不支持图片输入时（如 glm-5.3），自动把图片交给视觉模型识别并把描述注入对话 | `/vision-setup`、`/vision-proxy`、`/vision-chain`、`/vision <on\|off\|status\|test>` |
 
 所有命令的菜单简介里都带用法示例；大部分参数原样透传给底层 CLI。
 
@@ -127,6 +128,30 @@ ocr llm test
 ```
 
 日常无需任何操作：正常跑命令，钩子给出"[rtk] 改用以下等价命令"时照做即可。主动压缩就给命令加 `rtk ` 前缀（如 `rtk git status`）；被压缩的输出结果不可用时按提示 `rtk proxy <原命令>` 取原文。
+
+---
+
+## zcode-vision：图片视觉代理
+
+**原理**：给主模型发图片时（粘贴/拖拽），UserPromptSubmit 钩子在消息发给模型**之前**把图片交给视觉模型（默认 `glm-5.3-flash`）识别，识别文字随消息注入对话——主模型即使不支持图片输入（如 glm-5.3），也能像"看到"图片一样直接回答，不再自己去 OCR 或读图。
+
+- **开箱即用**：默认用 GLM 订阅（Coding Plan）的 key 直连官方端点识别，与当前会话用哪个供应商无关；key 留空自动获取
+- **跟随会话供应商**：代理设 `useProvider: session` 即用当前会话供应商的地址/key/格式识别（供应商本身指向 headroom 时即经 headroom）；也可指定供应商名。`/vision-proxy follow <代理名> session|<供应商>|off` 一键切换
+- **多代理链**：`fallback`（依次尝试到成功，主力+备用）/ `pipeline`（逐级加工：描述→校对/提炼，后一步可用 `{prev}` 引用上一步）；每个代理可独立配供应商、模型、key、请求格式（Anthropic Messages / OpenAI Chat Completions）
+- **不限图片数量与大小**；识别结果按「图片内容 + 链配置」缓存，同图同链不重复调用
+
+### 使用
+
+```
+/vision-setup    # 首次向导：确认识别端点（模型/key/是否走 headroom）并验证
+/vision test     # 用最近一张图跑通识别链
+/vision status   # 配置与缓存状态
+/vision off      # 临时关闭（on 恢复）
+```
+
+配置文件 `~/.zcode/zcode-vision.json`，[zcode-pro](https://github.com/duanluan/zcode-pro) 设置面板的「视觉代理」页编辑同一文件。
+
+已知边界：钩子无法感知主模型是否支持图片，有图即识别注入（对支持图片的模型只是多一次 flash 调用，结果无害）；识别失败只把原因注入对话，绝不阻断消息。
 
 ---
 

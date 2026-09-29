@@ -34,7 +34,7 @@
     {
       "name": "zcode-rtk",
       "source": "./zcode-rtk",
-      "version": "1.0.1",
+      "version": "1.1.0",
       "description": "命令输出源头压缩：PreToolUse 钩子提示用 rtk 包装典型大输出命令（每命令每会话仅提醒一次，原样重跑即放行）；rtk 把大输出压成摘要+落盘，小输出零开销透传。",
       "category": "developer-tools",
       "tags": [
@@ -42,6 +42,19 @@
         "hook",
         "token",
         "compression"
+      ]
+    },
+    {
+      "name": "zcode-vision",
+      "source": "./zcode-vision",
+      "version": "1.0.0",
+      "description": "图片视觉代理：主模型不支持图片输入时（如 glm-5.3），钩子自动把图片交给可配置的视觉模型（默认 GLM 订阅 key 直连 glm-5.3-flash，可用 useProvider 跟随当前会话供应商）识别并把描述注入对话。支持多代理与自定义代理链（fallback/pipeline），配置走 /vision-* 命令或 zcode-pro 面板。",
+      "category": "developer-tools",
+      "tags": [
+        "vision",
+        "image",
+        "hook",
+        "glm"
       ]
     }
   ]
