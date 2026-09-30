@@ -82,7 +82,7 @@ sleep 2; headroom doctor
 ## 第 5 步：验证
 
 - `headroom doctor`：应看到 ZCode 相关流量；`headroom agent-savings` / `headroom dashboard` 看节省
-- 插件已通过 `.mcp.json` 注册官方 `headroom mcp serve` 服务器（MCP 名称 `plugin:headroom:headroom`）——这是 headroom 官方的代理侧集成：CCR 压缩标记可通过 `headroom_retrieve` 工具按需取回原文，无需额外配置
+- 插件已通过 `.mcp.json` 注册官方 `headroom mcp serve` 服务器（MCP 名称 `plugin:headroom:headroom`）——这是 headroom 官方的代理侧集成：CCR 压缩标记可按需取回原文，无需额外配置。取回时必须用 MCP 全名 `mcp__plugin_headroom_headroom__headroom_retrieve`；裸名 `headroom_retrieve` 是代理注入给模型的别名，ZCode 无法执行（报 Tool not found），模型用裸名失败时提醒它换全名重试
 
 ## 第 6 步：汇报
 
