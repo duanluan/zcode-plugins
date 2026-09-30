@@ -1,6 +1,6 @@
 {
   "name": "zcode-vision",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "图片视觉代理：UserPromptSubmit 钩子在消息发给模型前识别图片附件，交给可配置的视觉模型（默认用 GLM 订阅 key 直连 glm-5.3-flash，不跟随会话供应商；代理可设 useProvider=session 跟随当前会话供应商或指定供应商名/ID）生成文字描述并注入本轮对话，主模型不支持图片输入也能读到图片内容。支持多代理与自定义代理链（fallback 依次尝试 / pipeline 逐级加工），不限图片数量与大小，识别结果按图与链配置缓存。配置：~/.zcode/zcode-vision.json（命令 /vision-setup、/vision-proxy、/vision-chain、/vision，或 zcode-pro 设置面板，二者等价）。",
   "author": {
     "name": "duanluan"

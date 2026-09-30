@@ -1,12 +1,12 @@
 ---
-description: rtk 管理动作：/rtk on|off ｜ /rtk gain ｜ /rtk whitelist ｜ /rtk uninstall（状态看 /rtk-status，安装看 /rtk-install）。rtk（github.com/rtk-ai/rtk）把常见开发命令输出压缩 60-90%
+description: rtk 管理动作：/rtk on|off ｜ /rtk gain ｜ /rtk whitelist ｜ /rtk uninstall（状态看 /rtk-status，安装看 /rtk-setup）。rtk（github.com/rtk-ai/rtk）把常见开发命令输出压缩 60-90%
 argument-hint: <on|off|gain|whitelist|uninstall> [参数]
 allowed-tools: Bash(rtk:*), Bash(cat:*), Bash(printf:*), Bash(python3:*), Bash(ls:*), Bash(command -v:*), Bash(rm:*)
 ---
 
 管理真 rtk（Rust Token Killer，<https://github.com/rtk-ai/rtk>）在 ZCode 的接入。`$ARGUMENTS` 原样作为参数来源：第一个位置参数是动作。
 
-> **状态查看请用 `/rtk-status`，安装/重装请用 `/rtk-install`**（本命令仍兼容接受 `status` / `install` 动作，转到同样流程）。
+> **状态查看请用 `/rtk-status`，安装/重装请用 `/rtk-setup`**（本命令仍兼容接受 `status` / `install` 动作，转到同样流程）。
 
 ## 设计原则
 
@@ -40,4 +40,4 @@ allowed-tools: Bash(rtk:*), Bash(cat:*), Bash(printf:*), Bash(python3:*), Bash(l
 
 ### status / install（兼容入口）
 
-分别与 `/rtk-status`、`/rtk-install` 相同：缺省动作视为 status；status 汇总 rtk 版本与路径、钩子模式、AGENTS.md 提示词块、`rtk gain` 节省；install 按官方 install.sh（失败则 tar 包重试）装 rtk → `rtk init -g` → python3 幂等同步 RTK.md 进 AGENTS.md → `rtk rewrite "git status"` 验证。
+分别与 `/rtk-status`、`/rtk-setup` 相同：缺省动作视为 status；status 汇总 rtk 版本与路径、钩子模式、AGENTS.md 提示词块、`rtk gain` 节省；install 按官方 install.sh（失败则 tar 包重试）装 rtk → `rtk init -g` → python3 幂等同步 RTK.md 进 AGENTS.md → `rtk rewrite "git status"` 验证。

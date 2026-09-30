@@ -1,5 +1,5 @@
 ---
-description: 安装真 rtk 并接入 ZCode：装二进制 → rtk init -g 生成官方全局提示词 → 同步进 ~/.zcode/AGENTS.md → 验证改写。示例：/rtk-install
+description: 安装真 rtk 并接入 ZCode（装后必做）：装二进制 → rtk init -g 生成官方全局提示词 → 同步进 ~/.zcode/AGENTS.md → 验证改写。示例：/rtk-setup
 argument-hint: [--force 重装]
 allowed-tools: Bash(rtk:*), Bash(curl:*), Bash(tar:*), Bash(install:*), Bash(mkdir:*), Bash(cat:*), Bash(printf:*), Bash(python3:*), Bash(ls:*), Bash(command -v:*)
 ---

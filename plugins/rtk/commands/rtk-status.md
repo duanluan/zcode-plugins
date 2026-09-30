@@ -30,6 +30,6 @@ rtk gain $ARGUMENTS 2>/dev/null | tail -8 || rtk stats $ARGUMENTS 2>/dev/null | 
 ## 结论与引导
 
 - 全部 ✓：一句"rtk 接入正常"即可，不啰嗦
-- **未安装** → 引导 `/rtk-install`
-- **提示词未同步** → 引导 `/rtk-install`（或说明 SessionStart 钩子会在下次会话自动同步）
+- **未安装** → 引导 `/rtk-setup`
+- **提示词未同步** → 引导 `/rtk-setup`（或说明 SessionStart 钩子会在下次会话自动同步）
 - **模式关闭** → 提示 `/rtk on` 可恢复改写提醒
