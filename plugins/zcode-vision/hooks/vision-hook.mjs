@@ -12,16 +12,20 @@
 // - 钩子拿不到会话所用模型，无法只在「主模型不支持图片」时触发；有图片附件即识别注入。
 // - 配置唯一事实来源 ~/.zcode/zcode-vision.json（/vision-* 命令与 zcode-pro 面板编辑同一文件）。
 
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  DEFAULT_PROMPT,
   IMAGE_CACHE_ROOT,
-  callProxy,
+  compressThresholdBytesOf,
+  loadCache,
   loadConfig,
+  log,
+  saveCache,
+  chainFingerprint,
+  prepareImage,
   resolveChainProxies,
   runChain,
-  sniffMime,
 } from './vision-lib.mjs';
 
 // 钩子总超时 180s（hooks.json），留 15s 余量自行收尾，避免被强杀后一点输出都没有
@@ -144,7 +148,6 @@ async function main() {
     process.exit(0);
   }
 
-  const { loadCache, saveCache, chainFingerprint } = await import('./vision-lib.mjs');
   const cache = loadCache();
   const chainProxies = resolveChainProxies(cfg, payload.session_id);
   const fp = chainFingerprint(chainProxies);
@@ -156,13 +159,13 @@ async function main() {
       continue;
     }
     let buf;
+    let mime;
     try {
-      buf = fs.readFileSync(file);
+      ({ buf, mime } = await prepareImage(file, compressThresholdBytesOf(cfg)));
     } catch (e) {
       results.push({ file, desc: '', errors: [`读取失败：${e.message}`], cached: false });
       continue;
     }
-    const { createHash } = await import('node:crypto');
     const key = createHash('sha256').update(fp).update(buf).digest('hex');
     const hit = cache.entries[key];
     if (hit?.desc) {
@@ -170,12 +173,12 @@ async function main() {
       if (hit.model) models.add(hit.model);
       continue;
     }
-    const { desc, used, errors } = await runChain(cfg, chainProxies, buf, sniffMime(buf, file));
+    const { desc, used, errors } = await runChain(cfg, chainProxies, buf, mime);
     if (desc) {
       cache.entries[key] = { desc, model: used, at: Date.now() };
       models.add(used);
     } else {
-      (await import('./vision-lib.mjs')).log(`识别失败 ${file}: ${errors.join(' | ')}`);
+      log(`识别失败 ${file}: ${errors.join(' | ')}`);
     }
     results.push({ file, desc, errors, cached: false });
   }
@@ -210,9 +213,9 @@ async function runTest(givenFile) {
   console.error(`测试图片：${file}`);
   console.error(`链：${(cfg.chain || []).join(cfg.chainMode === 'pipeline' ? ' → ' : ' ⤵ 失败则 ')}`);
   const chainProxies = resolveChainProxies(cfg, null);
-  const buf = fs.readFileSync(file);
+  const { buf, mime } = await prepareImage(file, compressThresholdBytesOf(cfg));
   const t0 = Date.now();
-  const { desc, used, errors } = await runChain(cfg, chainProxies, buf, sniffMime(buf, file));
+  const { desc, used, errors } = await runChain(cfg, chainProxies, buf, mime);
   if (desc) {
     console.error(`成功（${used}，${((Date.now() - t0) / 1000).toFixed(1)}s）：\n${desc}`);
     process.exit(0);

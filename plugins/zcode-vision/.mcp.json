@@ -5,7 +5,8 @@
       "args": [
         "${ZCODE_PLUGIN_ROOT}/hooks/vision-mcp.sh",
         "${ZCODE_PLUGIN_ROOT}/hooks/vision-mcp.mjs"
-      ]
+      ],
+      "timeoutMs": 120000
     }
   }
 }

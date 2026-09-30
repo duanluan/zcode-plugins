@@ -35,6 +35,7 @@ export const DEFAULT_CONFIG = {
   ],
   pollMs: 3000, // 等内联图片落盘的最长时间
   apiTimeoutMs: 60000, // 单次视觉调用超时
+  compressThresholdKB: 1024, // 超过该大小的图先压缩再识别（最长边固定 2000、JPEG85）；0 = 不压缩
 };
 export const MAX_CACHE_ENTRIES = 200;
 
@@ -393,8 +394,15 @@ export async function runChain(cfg, chainProxies, imageBuf, mime) {
 
 // 追问：对指定图片回答一个针对性问题（vision_ask 工具用）。
 // 走链的第一个可用代理（追问要快，不跑 pipeline 全链）；结果按「链指纹+图+问题」缓存。
+// 压缩阈值：未配置回落默认 1MB；显式 0 = 禁用压缩；其他非法值也回落默认
+export function compressThresholdBytesOf(cfg) {
+  if (cfg?.compressThresholdKB === undefined) return DEFAULT_CONFIG.compressThresholdKB * 1024;
+  const kb = Number(cfg.compressThresholdKB);
+  return Number.isFinite(kb) && kb >= 0 ? kb * 1024 : DEFAULT_CONFIG.compressThresholdKB * 1024;
+}
+
 export async function askImage(cfg, imageFile, question) {
-  const buf = fs.readFileSync(imageFile);
+  const { buf, mime } = await prepareImage(imageFile, compressThresholdBytesOf(cfg));
   const chainProxies = resolveChainProxies(cfg, null);
   const proxy = chainProxies.find((p) => !p.__missing && !p.__resolveError);
   if (!proxy) {
@@ -405,10 +413,37 @@ export async function askImage(cfg, imageFile, question) {
   const key = createHash('sha256').update(fp).update(buf).update(`\nQ:${question}`).digest('hex');
   const hit = cache.entries[key];
   if (hit?.desc) return { desc: hit.desc, used: hit.model || proxy.name, cached: true };
-  const desc = await callProxy({ ...proxy, prompt: question }, { imageB64: buf.toString('base64'), mime: sniffMime(buf, imageFile) }, cfg);
+  const desc = await callProxy({ ...proxy, prompt: question }, { imageB64: buf.toString('base64'), mime }, cfg);
   cache.entries[key] = { desc, model: usedLabelOf(proxy), at: Date.now() };
   saveCache(cache);
   return { desc, used: usedLabelOf(proxy), cached: false };
+}
+
+// 大图预压缩：视觉上游限制原始图 ≤3.93MB、最长边 2000（超限被拒或被上游再压），
+// 且大图 base64/传输/识别都慢（MCP 工具默认 30s 超时容易杀掉结果）。
+// 超过阈值（thresholdBytes，默认 1MB，0 = 禁用）的图用 magick 缩到最长边 2000、
+// JPEG 质量 85（UI 截图无透明通道，白底合成）；magick 不可用或压缩失败回退原图。返回 { buf, mime }。
+export async function prepareImage(imageFile, thresholdBytes = 1024 * 1024) {
+  const raw = fs.readFileSync(imageFile);
+  if (!Number.isFinite(thresholdBytes) || thresholdBytes <= 0 || raw.length <= thresholdBytes) {
+    return { buf: raw, mime: sniffMime(raw, imageFile) };
+  }
+  const tool = await new Promise((resolve) => {
+    require_('node:child_process').execFile('sh', ['-c', 'command -v magick || command -v convert'], (err, out) =>
+      resolve(!err && out ? out.trim().split('\n').pop() : null));
+  });
+  if (!tool) return { buf: raw, mime: sniffMime(raw, imageFile) };
+  const out = await new Promise((resolve) => {
+    const child = require_('node:child_process').execFile(
+      tool,
+      [imageFile, '-auto-orient', '-resize', '2000x2000>', '-background', 'white', '-alpha', 'remove', '-quality', '85', 'jpg:-'],
+      { encoding: 'buffer', maxBuffer: 32 * 1024 * 1024, timeout: 20000 },
+      (err, stdout) => resolve(err || !stdout.length ? null : stdout),
+    );
+    // magick 杀超时保险
+    child.on('error', () => resolve(null));
+  });
+  return out ? { buf: out, mime: 'image/jpeg' } : { buf: raw, mime: sniffMime(raw, imageFile) };
 }
 
 function usedLabelOf(p) {
