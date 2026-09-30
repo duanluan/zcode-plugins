@@ -47,7 +47,7 @@
     {
       "name": "zcode-vision",
       "source": "./zcode-vision",
-      "version": "1.1.0",
+      "version": "1.1.1",
       "description": "图片视觉代理：主模型不支持图片输入时（如 glm-5.3），钩子自动把图片交给可配置的视觉模型（默认 GLM 订阅 key 直连 glm-5.3-flash，可用 useProvider 跟随当前会话供应商）识别并把描述注入对话。支持多代理与自定义代理链（fallback/pipeline），配置走 /vision-* 命令或 zcode-pro 面板。",
       "category": "developer-tools",
       "tags": [

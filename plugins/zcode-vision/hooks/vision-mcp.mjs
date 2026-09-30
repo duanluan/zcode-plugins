@@ -15,14 +15,14 @@ const TOOLS = [
   {
     name: 'vision_ask',
     description:
-      '对一张图片追问细节。输入图片的完整路径（来自 [zcode-vision] 注入文本中的 [图N · 路径]）和一个具体问题，' +
-      '由视觉模型对原图定向回答。适用于：识别描述中缺失的细节（如报错完整原文、局部文字、小字号内容、图表数值等）。' +
-      '同一图片同一问题有缓存，不会重复调用。',
+      '用视觉模型识别任意本地图片并回答问题。两类用途：① 识别描述缺细节时对 [zcode-vision] 注入文本中的图片定向追问；' +
+      '② 识别任何本地图片文件——浏览文档/网页源码时遇到图片引用、拿到图表文件路径等，自己看不了图（Read 只返回占位符）的场景，' +
+      '传路径让本工具代看。question 可以是针对性问题，也可以是「请完整识别这张图片的全部内容」这类总览请求。同一图片同一问题有缓存。',
     inputSchema: {
       type: 'object',
       properties: {
-        image_path: { type: 'string', description: '图片文件的完整路径（[zcode-vision] 注入文本 [图N · …] 中给出的路径）' },
-        question: { type: 'string', description: '针对这张图片的具体问题（如"顶部报错的完整原文是什么"' },
+        image_path: { type: 'string', description: '本地图片文件的完整路径（png/jpg/gif/webp 等；可来自 [zcode-vision] 注入文本、文档中的图片引用、任意文件路径）' },
+        question: { type: 'string', description: '针对这张图片的问题或要求（如"顶部报错的完整原文是什么"、"请完整识别这张图片的全部内容"）' },
       },
       required: ['image_path', 'question'],
     },
