@@ -1,5 +1,5 @@
 {
-  "description": "会话启动时确保 Headroom 压缩代理在运行：已监听则跳过，未装 headroom 则静默跳过，否则后台拉起（上游默认 GLM open.bigmodel.cn）。环境变量可覆盖：HEADROOM_PROXY_PORT / HEADROOM_PROXY_AUTOSTART=0 / HEADROOM_UPSTREAM_ANTHROPIC / HEADROOM_UPSTREAM_OPENAI。",
+  "description": "会话启动时确保 Headroom 压缩代理在运行：已监听则跳过，未装 headroom 则静默跳过，否则后台拉起（上游默认 GLM open.bigmodel.cn）；省电自动切换开启时同时拉起电源监视器。环境变量可覆盖：HEADROOM_PROXY_PORT / HEADROOM_PROXY_AUTOSTART=0 / HEADROOM_UPSTREAM_ANTHROPIC / HEADROOM_UPSTREAM_OPENAI / HEADROOM_KOMPRESS_BACKEND / HEADROOM_POWER_SAVE_CPU=battery|saver|off（持久配置走 ~/.zcode/headroom.json）。",
   "hooks": {
     "SessionStart": [
       {

@@ -45,14 +45,17 @@ UNIT
 systemctl --user daemon-reload && systemctl --user enable --now headroom-proxy
 ```
 
-systemd 不可用（无 systemd 用户会话）时退回 nohup：
+用户配置了 CPU 压缩时（`~/.zcode/headroom.json` 的 `kompressBackend` 非 `"auto"`），在 `[Service]` 段再加一行 `Environment=HEADROOM_KOMPRESS_BACKEND=<该值>` 后重跑 `daemon-reload && restart headroom-proxy`。**省电自动切换（`powerSaveCpu` 为 `battery`/`saver`）无需写进单元**：插件的电源监视器会在需要时经 `systemctl --user set-environment` + `restart` 切换（若单元里手写了 `HEADROOM_KOMPRESS_BACKEND`，请把配置文件的 `kompressBackend` 设成同值，避免监视器反复改写）。
+
+systemd 不可用（无 systemd 用户会话）时退回插件脚本（自动带上 CPU/省电配置与电源监视器）：
 
 ```bash
+sh <插件目录>/hooks/ensure-proxy.sh start    # 找不到脚本时退回：
 ANTHROPIC_TARGET_API_URL=https://open.bigmodel.cn/api/anthropic \
 nohup headroom proxy --port 8787 >> ~/.zcode-headroom-proxy.log 2>&1 &
 ```
 
-- 端口被占用时：`curl -s http://127.0.0.1:8787/health` 有响应就复用现有代理，**不要重复拉起**（SessionStart 钩子也会做同样的事）
+- 端口被占用时：`curl -s http://127.0.0.1:8787/livez` 有响应就复用现有代理，**不要重复拉起**（SessionStart 钩子也会做同样的事；不要探测根路径 `/`，会挂起）
 - 用户给了 `--upstream-anthropic` 时替换 env；给了 `--port` 时同步替换
 - 也可用官方命令起代理并打印 ZCode 配置（不重复起代理）：`headroom wrap zcode --no-proxy --port 8787`
 
@@ -63,7 +66,7 @@ sleep 2; headroom doctor
 ```
 
 - `doctor` 会检查代理与客户端路由状态；有报错先看 `~/.zcode-headroom-proxy.log`
-- 连通性抽查：`curl -s http://127.0.0.1:8787/ | head -c 200`
+- 连通性抽查：`curl -s http://127.0.0.1:8787/livez | head -c 200`
 
 ## 第 4 步：新建自定义供应商（必须用户在界面操作，逐步给出）
 

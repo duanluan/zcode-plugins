@@ -1,7 +1,7 @@
 {
   "name": "headroom",
-  "version": "1.0.2",
-  "description": "接入 Headroom 本地压缩代理：SessionStart 自动拉起代理（上游指向 GLM open.bigmodel.cn），.mcp.json 注册官方 headroom mcp serve（CCR 取回工具）。/hr-setup 含自定义供应商逐步配置（须新建供应商，API 格式选 Anthropic Messages）。",
+  "version": "1.1.0",
+  "description": "接入 Headroom 本地压缩代理：SessionStart 自动拉起代理（上游指向 GLM open.bigmodel.cn），.mcp.json 注册官方 headroom mcp serve（CCR 取回工具）。/hr-setup 含自定义供应商逐步配置（须新建供应商，API 格式选 Anthropic Messages）。支持压缩设备切换（强制 CPU / 显卡自动）与省电模式自动切 CPU（跨 win/mac/linux 桌面），配置 ~/.zcode/headroom.json。",
   "author": {
     "name": "duanluan"
   },
