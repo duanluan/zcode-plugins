@@ -17,13 +17,23 @@ export const IMAGE_CACHE_ROOT = path.join(HOME, '.zcode', 'cli', 'image-cache');
 
 export const DEFAULT_PROMPT =
   '请详细描述这张图片的全部内容。若是界面或图表截图，请先把所有错误、警告、异常状态逐字引用出来（含完整原文），再描述整体布局、文字与关键数据。';
-// 默认走 GLM 订阅（coding plan）的 Anthropic 兼容端点：用订阅 key 直连，
-// 无需标准 API 余额。format: "anthropic"=Anthropic Messages；"openai"=OpenAI Chat Completions。
+// 默认链两级（chainMode: fallback）：glm-session 跟随当前会话所用供应商——识别走用户自己选的、
+// 主模型已验证可用的订阅额度，自定义供应商（如各种 Max 套餐）也能自动跟上；解析或调用失败时
+// 退回 glm-flash 用 GLM 订阅（coding plan）的 Anthropic 兼容端点直连，无需标准 API 余额。
+// format: "anthropic"=Anthropic Messages；"openai"=OpenAI Chat Completions。
 export const DEFAULT_CONFIG = {
   enabled: true,
   chainMode: 'fallback', // fallback=依次尝试到成功为止；pipeline=逐级加工（描述→校对→提炼）
-  chain: ['glm-flash'],
+  chain: ['glm-session', 'glm-flash'],
   proxies: [
+    {
+      // 跟随当前会话所用供应商（任务索引反查 providerId；无会话上下文时取最近会话）。
+      // baseUrl/apiKey/format 由该供应商配置自动填充，model 用本代理自己的
+      name: 'glm-session',
+      useProvider: 'session',
+      model: 'glm-5.3-flash',
+      prompt: DEFAULT_PROMPT,
+    },
     {
       name: 'glm-flash',
       baseUrl: 'https://open.bigmodel.cn/api/anthropic',
@@ -38,6 +48,30 @@ export const DEFAULT_CONFIG = {
   compressThresholdKB: 1024, // 超过该大小的图先压缩再识别（最长边固定 2000、JPEG85）；0 = 不压缩
 };
 export const MAX_CACHE_ENTRIES = 200;
+
+// v1 默认模板（单代理 glm-flash 直连，不跟随会话）：只用于识别「从未自定义过」的旧配置并自动升级
+const LEGACY_DEFAULT_CHAIN = ['glm-flash'];
+const LEGACY_DEFAULT_PROXIES = [
+  {
+    name: 'glm-flash',
+    baseUrl: 'https://open.bigmodel.cn/api/anthropic',
+    model: 'glm-5.3-flash',
+    apiKey: '',
+    format: 'anthropic',
+    prompt: DEFAULT_PROMPT,
+  },
+];
+
+// 键序无关的深比较：面板/命令重写过（键顺序变化）但内容仍是旧默认的配置也能识别为「未自定义」
+function deepEqualUnordered(a, b) {
+  const canon = (v) =>
+    Array.isArray(v)
+      ? v.map(canon)
+      : v && typeof v === 'object'
+        ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, canon(v[k])]))
+        : v;
+  return JSON.stringify(canon(a)) === JSON.stringify(canon(b));
+}
 
 export function log(msg) {
   try {
@@ -75,6 +109,23 @@ export function loadConfig() {
       log(`写入配置模板失败：${e.message}`);
     }
     return { ...DEFAULT_CONFIG };
+  }
+  // 旧默认（chain/proxies 从未改过，且仍为默认 fallback 模式）自动升级为「跟随会话供应商
+  // → GLM 直连兜底」新默认；用户改过任何一处（换了模型、填了 key、调过链、改过模式）都不动，
+  // 保持文件为准——pipeline 模式下多级是「逐级加工」语义，不能替用户加级
+  if (
+    (onDisk.chainMode || 'fallback') === 'fallback' &&
+    deepEqualUnordered(onDisk.chain, LEGACY_DEFAULT_CHAIN) &&
+    deepEqualUnordered(onDisk.proxies, LEGACY_DEFAULT_PROXIES)
+  ) {
+    const upgraded = { ...DEFAULT_CONFIG, ...onDisk, chain: DEFAULT_CONFIG.chain, proxies: DEFAULT_CONFIG.proxies };
+    try {
+      atomicWrite(CONFIG_PATH, `${JSON.stringify(upgraded, null, 2)}\n`);
+      log('配置为未自定义的旧默认模板，已自动升级：默认链改为 glm-session（跟随会话供应商）→ glm-flash（GLM 直连兜底）');
+    } catch (e) {
+      log(`升级旧默认配置失败：${e.message}`);
+    }
+    return upgraded;
   }
   // 浅合并：文件里没写的键用默认值，proxies/chain 完全以文件为准
   return { ...DEFAULT_CONFIG, ...onDisk };

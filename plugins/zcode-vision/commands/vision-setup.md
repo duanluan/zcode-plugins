@@ -15,8 +15,14 @@ zcode-vision 首次安装或配置混乱时运行本向导。目标产物是合�
 {
   "enabled": true,
   "chainMode": "fallback",
-  "chain": ["glm-flash"],
+  "chain": ["glm-session", "glm-flash"],
   "proxies": [
+    {
+      "name": "glm-session",
+      "useProvider": "session",
+      "model": "glm-5.3-flash",
+      "prompt": "请详细描述这张图片的全部内容。若是界面或图表截图，请先把所有错误、警告、异常状态逐字引用出来（含完整原文），再描述整体布局、文字与关键数据。"
+    },
     {
       "name": "glm-flash",
       "baseUrl": "https://open.bigmodel.cn/api/anthropic",
@@ -33,10 +39,10 @@ zcode-vision 首次安装或配置混乱时运行本向导。目标产物是合�
 ```
 
 3. **问用户**（用 AskUserQuestion 一次问清，允许逐项跳过用默认）：
-   - **识别模型**：默认 GLM `glm-5.3-flash`（`format: "anthropic"`）——用 GLM 订阅（coding plan）的 key 直连官方端点 `open.bigmodel.cn/api/anthropic`，**与当前会话用哪个供应商无关**，无需标准 API 余额。「OpenAI 兼容供应商」选项对应 `format: "openai"`；都不合适时引导用户**选 Other 填写** baseUrl 与模型名。措辞一律用「选 Other 填写…」，**不要说「备注」**——选项界面没有备注入口，自由输入只能走 Other。
-   - **跟随会话供应商**：想让识别走「当前会话所用供应商」（例如新开会话切到 BigModel-Max1 之类的自定义供应商）时，给代理加 `"useProvider": "session"`——baseUrl、key、请求格式自动取该供应商配置，`model` 仍用本代理的（glm-5.3-flash 或其他模型都行）。也可 `"useProvider": "<供应商名或ID>"` 指定固定供应商。设置后该代理的 baseUrl/apiKey/format 不再生效（留着只会误导，配置里不要再写 baseUrl）；openai-responses 格式的供应商暂不支持（会报错说明）。注意：若会话供应商本身指向 headroom（BigModel-Max1/Max2 的 baseURL 就是 8787），跟随它即等于走 headroom，无需也无法再叠加 baseUrl。推荐组合：`chain: ["follow", "glm-flash"]` + fallback——会话供应商失败时兜底到订阅直连。
+   - **跟随会话供应商（默认第一级）**：默认 `glm-session` 代理带 `"useProvider": "session"`——识别走**当前会话所用供应商**的 baseUrl、key、请求格式（`model` 仍用代理自己的），会话供应商失败时兜底到 `glm-flash` 直连。若会话供应商指向 headroom（BigModel-Max1/Max2 的 baseURL 就是 8787），跟随它即等于走 headroom，无需也无法再叠加 baseUrl。openai-responses 格式的供应商暂不支持（会报错并跳到下一级）。想固定跟随某个供应商改 `"useProvider": "<供应商名或ID>"`，想完全直连则删掉 useProvider 并自填 baseUrl/key。旧版未自定义的配置会在钩子首次加载时自动升级到本默认。
+   - **识别模型**：默认 GLM `glm-5.3-flash`（两级代理同名同模型，`format` 由各自端点决定——glm-session 自动取供应商格式，glm-flash 为 `"anthropic"`）。换模型时两级一起改；都不合适时引导用户**选 Other 填写** baseUrl 与模型名。措辞一律用「选 Other 填写…」，**不要说「备注」**——选项界面没有备注入口，自由输入只能走 Other。
    - **API key**：默认留空自动获取（依次尝试环境变量 `GLM_API_KEY` → `~/.zcode/v2/config.json` 里 bigmodel 供应商的 key，默认即可用）。**不要引导用户在对话里粘贴 key**（会留在会话记录里）；确要显式配置，告知用户事后执行 `/vision-proxy edit <名称> apiKey=<key>` 或直接编辑 `~/.zcode/zcode-vision.json`。
-   - **是否走本地 headroom**：走则 baseUrl 改为 `http://127.0.0.1:8787`（**会覆盖识别模型选项里的直连端点**，format 按上游保持 anthropic；依赖 headroom 在运行——headroom 插件的 SessionStart 钩子会自动拉起）。并说明：不走 headroom 时，识别文字注入后同样会随主模型请求被 headroom 压缩，这个选择只影响「识别调用本身」是否经代理。
+   - **是否走本地 headroom**：只影响 `glm-flash` 直连兜底这一级——走则 baseUrl 改为 `http://127.0.0.1:8787`（format 按上游保持 anthropic；依赖 headroom 在运行——headroom 插件的 SessionStart 钩子会自动拉起）。会话供应商本身指向 headroom 时，`glm-session` 跟随它已等于走 headroom，这级无需再改。并说明：不走 headroom 时，识别文字注入后同样会随主模型请求被 headroom 压缩，这个选择只影响「识别调用本身」是否经代理。
    - **大图压缩阈值 compressThresholdKB**（可跳过用默认）：超过该大小（KB）的图先压缩再识别（最长边 2000、JPEG85）；上游限制原始图约 3.9MB/最长边 2000，大图不压会被拒或超时。默认 1024；0 = 不压缩（除非确认图片都很小，不推荐）。写入配置顶层，事后用 `/vision config compressThresholdKB=<值>` 调整。
    - baseUrl 只需给到 `/api/anthropic`、`/api/paas/v4` 这一层：`anthropic` 格式自动补 `/v1/messages`，`openai` 格式自动补 `/chat/completions`。
 4. **写入**：python3 修改对应字段后 cat 确认。

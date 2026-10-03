@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // zcode-vision UserPromptSubmit 钩子：主模型收不到图片时（例如 glm-5.3 不支持图片输入），
-// 把本轮消息里的图片交给可配置的视觉代理链识别（默认用 GLM 订阅 key 直连 glm-5.3-flash，
-// 不跟随会话供应商；代理可设 useProvider 跟随当前会话供应商或指定供应商），
+// 把本轮消息里的图片交给可配置的视觉代理链识别（默认链：先跟随当前会话所用供应商调 glm-5.3-flash，
+// 失败退回 GLM 订阅 key 直连；代理可用 useProvider 改为指定供应商，或自带 baseUrl/key 直连），
 // 识别文字以 additionalContext 注入本轮对话。识别不改写消息、不阻断，失败只在注入文本里说明。
 // 共享逻辑在 vision-lib.mjs（vision-mcp.mjs 的追问工具同用一份）。
 //
