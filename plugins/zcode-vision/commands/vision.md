@@ -15,7 +15,7 @@ zcode-vision 插件管理入口。配置文件是唯一事实来源：`~/.zcode/
 - enabled、chainMode、chain 顺序、compressThresholdKB（大图压缩阈值 KB，0 = 不压缩，可用 `/vision config compressThresholdKB=值` 修改）
 - 每个代理：名称、baseUrl 或 useProvider（跟随谁）、model、apiKey 是否已配（只显示「已配/未配」，不显示值）、prompt 前 40 字
 - 缓存条目数；`~/.zcode-vision.log` 最后 5 行（存在时）
-- 提醒：钩子读不到会话模型，有图片附件就会识别注入；关闭用 `/vision off`
+- 提醒：插件读不到会话模型，有图片附件就会自动识别；关闭用 `/vision off`
 
 ### config <键>[=值]
 

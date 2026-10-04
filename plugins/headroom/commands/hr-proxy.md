@@ -1,5 +1,5 @@
 ---
-description: 管理 Headroom 本地代理进程：启动（上游默认 GLM）/停止/状态/重启/压缩后端/省电切换。示例：/hr-proxy status ｜ /hr-proxy start ｜ /hr-proxy restart ｜ /hr-proxy backend cpu ｜ /hr-proxy power battery
+description: 管理 Headroom 本地代理：启动（上游默认 GLM）/停止/状态/重启/压缩设备/省电切换。示例：/hr-proxy status ｜ /hr-proxy start ｜ /hr-proxy restart ｜ /hr-proxy backend cpu ｜ /hr-proxy power battery
 argument-hint: <start|stop|status|restart|backend <cpu|auto|…>|power <battery|saver|off>> [--port <端口>] [--upstream-anthropic <url>] [--upstream-openai <url>]
 allowed-tools: Bash(sh:*), Bash(headroom:*), Bash(curl:*), Bash(ls:*), Bash(pgrep:*), Bash(pkill:*), Bash(systemctl:*)
 ---

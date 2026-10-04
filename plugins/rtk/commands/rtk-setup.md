@@ -1,5 +1,5 @@
 ---
-description: 安装真 rtk 并接入 ZCode（装后必做）：装二进制 → rtk init -g 生成官方全局提示词 → 同步进 ~/.zcode/AGENTS.md → 验证改写。示例：/rtk-setup
+description: 安装真 rtk 并接入 ZCode（装后必做）：安装 rtk → rtk init -g 生成官方全局提示词 → 同步进 ~/.zcode/AGENTS.md → 验证改写。示例：/rtk-setup
 argument-hint: [--force 重装]
 allowed-tools: Bash(rtk:*), Bash(curl:*), Bash(tar:*), Bash(install:*), Bash(mkdir:*), Bash(cat:*), Bash(printf:*), Bash(python3:*), Bash(ls:*), Bash(command -v:*)
 ---
@@ -71,4 +71,4 @@ grep -c 'rtk:start' ~/.zcode/AGENTS.md
 ## 第 5 步：汇报
 
 - rtk 版本与路径、提示词同步结果、改写验证结果
-- 日常使用说明一句话：正常跑命令即可；钩子给出"[rtk] 改用以下等价命令"时照做；`/rtk-status` 随时查看状态与节省；`/rtk off` 关闭提醒
+- 日常使用说明一句话：正常跑命令即可；出现"[rtk] 改用以下等价命令"提示时照做；`/rtk-status` 随时查看状态与节省；`/rtk off` 关闭提醒

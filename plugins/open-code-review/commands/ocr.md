@@ -1,5 +1,5 @@
 ---
-description: 任意 ocr 子命令全透传。示例：/ocr session list ｜ /ocr session show <id> ｜ /ocr llm test ｜ /ocr rules check <file> ｜ /ocr viewer
+description: 任意 ocr 子命令都可直接用，参数原样传入。示例：/ocr session list ｜ /ocr session show <id> ｜ /ocr llm test ｜ /ocr rules check <file> ｜ /ocr viewer
 argument-hint: <子命令与参数> 如：session list ｜ llm test ｜ rules check <file> ｜ viewer
 allowed-tools: Bash(ocr:*), Bash(npm i -g @alibaba-group/open-code-review:*)
 ---

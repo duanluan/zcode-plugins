@@ -1,5 +1,5 @@
 ---
-description: 任意 headroom 子命令全透传。示例：/hr doctor ｜ /hr dashboard ｜ /hr savings ｜ /hr wrap zcode ｜ /hr inspect ｜ /hr mcp serve
+description: 任意 headroom 子命令都可直接用，参数原样传入。示例：/hr doctor ｜ /hr dashboard ｜ /hr savings ｜ /hr wrap zcode ｜ /hr inspect ｜ /hr mcp serve
 argument-hint: <子命令与参数> 如：doctor ｜ dashboard ｜ wrap zcode ｜ inspect ｜ memory stats
 allowed-tools: Bash(headroom:*), Bash(command -v:*), Bash(uv:*), Bash(pipx:*), Bash(pip install*)
 ---
