@@ -33,14 +33,16 @@ zcode-vision 首次安装或配置混乱时运行本向导。目标产物是合�
     }
   ],
   "pollMs": 3000,
-  "apiTimeoutMs": 60000,
-  "compressThresholdKB": 1024
+  "apiTimeoutMs": 120000,
+  "compressThresholdKB": 1024,
+  "skipAfterFailures": 4,
+  "skipMinutes": 30
 }
 ```
 
 3. **问用户**（用 AskUserQuestion 一次问清，允许逐项跳过用默认）：
-   - **跟随会话供应商（默认第一级）**：默认 `glm-session` 代理带 `"useProvider": "session"`——识别走**当前会话所用供应商**的 baseUrl、key、请求格式（`model` 仍用代理自己的），会话供应商失败时兜底到 `glm-flash` 直连。若会话供应商指向 headroom（BigModel-Max1/Max2 的 baseURL 就是 8787），跟随它即等于走 headroom，无需也无法再叠加 baseUrl。openai-responses 格式的供应商暂不支持（会报错并跳到下一级）。想固定跟随某个供应商改 `"useProvider": "<供应商名或ID>"`，想完全直连则删掉 useProvider 并自填 baseUrl/key。旧版未自定义的配置会在钩子首次加载时自动升级到本默认。
-   - **识别模型**：默认 GLM `glm-5.3-flash`（两级代理同名同模型，`format` 由各自端点决定——glm-session 自动取供应商格式，glm-flash 为 `"anthropic"`）。换模型时两级一起改；都不合适时引导用户**选 Other 填写** baseUrl 与模型名。措辞一律用「选 Other 填写…」，**不要说「备注」**——选项界面没有备注入口，自由输入只能走 Other。
+   - **跟随会话供应商（默认第一级）**：默认 `glm-session` 代理带 `"useProvider": "session"`——识别走**当前会话所用供应商**的 baseUrl、key、请求格式，**识别模型优先用内置映射表**（Xiaomi MiMo → `mimo-v2.6-flash`、智谱系 → `glm-5.3-flash`，映射未命中才用代理自己的 model）。若会话供应商指向 headroom（BigModel-Max1/Max2 的 baseURL 就是 8787），跟随它即等于走 headroom，无需也无法再叠加 baseUrl。openai-responses 格式的供应商暂不支持（会报错并跳到下一级）。想固定跟随某个供应商改 `"useProvider": "<供应商名或ID>"`，想完全直连则删掉 useProvider 并自填 baseUrl/key。旧版未自定义的配置会在钩子首次加载时自动升级到本默认。
+   - **识别模型**：直连级默认 GLM `glm-5.3-flash`（`glm-flash` 为 `"anthropic"` 格式）；跟随级的 model 只作映射未命中时的兜底。换模型改对应代理的 model 字段；都不合适时引导用户**选 Other 填写** baseUrl 与模型名。措辞一律用「选 Other 填写…」，**不要说「备注」**——选项界面没有备注入口，自由输入只能走 Other。
    - **API key**：默认留空自动获取（依次尝试环境变量 `GLM_API_KEY` → `~/.zcode/v2/config.json` 里 bigmodel 供应商的 key，默认即可用）。**不要引导用户在对话里粘贴 key**（会留在会话记录里）；确要显式配置，告知用户事后执行 `/vision-proxy edit <名称> apiKey=<key>` 或直接编辑 `~/.zcode/zcode-vision.json`。
    - **是否走本地 headroom**：只影响 `glm-flash` 直连兜底这一级——走则 baseUrl 改为 `http://127.0.0.1:8787`（format 按上游保持 anthropic；依赖 headroom 在运行——headroom 插件的 SessionStart 钩子会自动拉起）。会话供应商本身指向 headroom 时，`glm-session` 跟随它已等于走 headroom，这级无需再改。并说明：不走 headroom 时，识别文字注入后同样会随主模型请求被 headroom 压缩，这个选择只影响「识别调用本身」是否经代理。
    - **大图压缩阈值 compressThresholdKB**（可跳过用默认）：超过该大小（KB）的图先压缩再识别（最长边 2000、JPEG85）；上游限制原始图约 3.9MB/最长边 2000，大图不压会被拒或超时。默认 1024；0 = 不压缩（除非确认图片都很小，不推荐）。写入配置顶层，事后用 `/vision config compressThresholdKB=<值>` 调整。

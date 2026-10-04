@@ -1,6 +1,6 @@
 // zcode-vision 共享库：配置、供应商解析、视觉调用、链执行、缓存。
 // 使用方：hooks/vision-hook.mjs（UserPromptSubmit 钩子与 --test）、hooks/vision-mcp.mjs（vision_ask 追问工具）。
-// 修改此处需同时跑 /tmp/vision-test/run.mjs 回归。
+// 修改此处需同时跑回归：node plugins/zcode-vision/test/run.mjs。
 
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
@@ -17,9 +17,11 @@ export const IMAGE_CACHE_ROOT = path.join(HOME, '.zcode', 'cli', 'image-cache');
 
 export const DEFAULT_PROMPT =
   '请详细描述这张图片的全部内容。若是界面或图表截图，请先把所有错误、警告、异常状态逐字引用出来（含完整原文），再描述整体布局、文字与关键数据。';
-// 默认链两级（chainMode: fallback）：glm-session 跟随当前会话所用供应商——识别走用户自己选的、
-// 主模型已验证可用的订阅额度，自定义供应商（如各种 Max 套餐）也能自动跟上；解析或调用失败时
-// 退回 glm-flash 用 GLM 订阅（coding plan）的 Anthropic 兼容端点直连，无需标准 API 余额。
+// 默认两级（chainMode: fallback，依次尝试到成功）：glm-session 跟随当前会话所用供应商
+// （识别模型优先用 PREFERRED_VISION_MODELS 映射表）→ glm-flash 用 GLM 订阅（coding plan）
+// 的 Anthropic 兼容端点直连兜底，无需标准 API 余额。
+// 赠送额度级 trust-build 暂不进默认：ZCode 网关不放行无人值守调用（ADR-0002）；
+// 想试可手动加回（useProvider: 'builtin:bigmodel-start-plan'，配 timeoutMs 短超时快速降级）。
 // format: "anthropic"=Anthropic Messages；"openai"=OpenAI Chat Completions。
 export const DEFAULT_CONFIG = {
   enabled: true,
@@ -28,7 +30,7 @@ export const DEFAULT_CONFIG = {
   proxies: [
     {
       // 跟随当前会话所用供应商（任务索引反查 providerId；无会话上下文时取最近会话）。
-      // baseUrl/apiKey/format 由该供应商配置自动填充，model 用本代理自己的
+      // baseUrl/apiKey/format 由该供应商配置自动填充；model 优先用映射表，未命中用本字段
       name: 'glm-session',
       useProvider: 'session',
       model: 'glm-5.3-flash',
@@ -44,34 +46,14 @@ export const DEFAULT_CONFIG = {
     },
   ],
   pollMs: 3000, // 等内联图片落盘的最长时间
-  apiTimeoutMs: 60000, // 单次视觉调用超时
+  // 单次视觉调用超时（代理可单独用 timeoutMs 覆盖）。实测 MiMo 等视觉上游冷启动 40~105 秒，
+  // 60 秒会把慢的那次掐掉导致降级，故默认放宽到 120 秒（钩子总预算 165 秒内兜得住）
+  apiTimeoutMs: 120000,
   compressThresholdKB: 1024, // 超过该大小的图先压缩再识别（最长边固定 2000、JPEG85）；0 = 不压缩
+  skipAfterFailures: 4, // 连续失败多少次后暂时跳过该代理；0 = 不跳过
+  skipMinutes: 30, // 跳过多久后重试；期间任一次成功即清零计数
 };
 export const MAX_CACHE_ENTRIES = 200;
-
-// v1 默认模板（单代理 glm-flash 直连，不跟随会话）：只用于识别「从未自定义过」的旧配置并自动升级
-const LEGACY_DEFAULT_CHAIN = ['glm-flash'];
-const LEGACY_DEFAULT_PROXIES = [
-  {
-    name: 'glm-flash',
-    baseUrl: 'https://open.bigmodel.cn/api/anthropic',
-    model: 'glm-5.3-flash',
-    apiKey: '',
-    format: 'anthropic',
-    prompt: DEFAULT_PROMPT,
-  },
-];
-
-// 键序无关的深比较：面板/命令重写过（键顺序变化）但内容仍是旧默认的配置也能识别为「未自定义」
-function deepEqualUnordered(a, b) {
-  const canon = (v) =>
-    Array.isArray(v)
-      ? v.map(canon)
-      : v && typeof v === 'object'
-        ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, canon(v[k])]))
-        : v;
-  return JSON.stringify(canon(a)) === JSON.stringify(canon(b));
-}
 
 export function log(msg) {
   try {
@@ -98,10 +80,40 @@ export function atomicWrite(file, text) {
   fs.renameSync(tmp, file);
 }
 
+// 历史默认模板（只用于识别「从未自定义过」的旧配置并自动升级）：
+// v1 = 单代理 glm-flash 直连（升级为现行默认两级）。v2 两级默认（glm-session → glm-flash）
+// 与现行默认一致、无需升级，故不在表内——放进去会让每次加载都触发一次无意义的写盘。
+const LEGACY_DEFAULTS = [
+  {
+    chain: ['glm-flash'],
+    proxies: [
+      {
+        name: 'glm-flash',
+        baseUrl: 'https://open.bigmodel.cn/api/anthropic',
+        model: 'glm-5.3-flash',
+        apiKey: '',
+        format: 'anthropic',
+        prompt: DEFAULT_PROMPT,
+      },
+    ],
+  },
+];
+
+// 键序无关的深比较：面板/命令重写过（键顺序变化）但内容仍是旧默认的配置也能识别为「未自定义」
+function deepEqualUnordered(a, b) {
+  const canon = (v) =>
+    Array.isArray(v)
+      ? v.map(canon)
+      : v && typeof v === 'object'
+        ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, canon(v[k])]))
+        : v;
+  return JSON.stringify(canon(a)) === JSON.stringify(canon(b));
+}
+
 export function loadConfig() {
   const onDisk = readJson(CONFIG_PATH);
   if (!onDisk) {
-    // 首跑生成模板（含默认 GLM 代理），用户可用 /vision-setup 或 zcode-pro 面板修改
+    // 首跑生成模板（含默认两级链），用户可用 /vision-setup 或 zcode-pro 面板修改
     try {
       fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
       atomicWrite(CONFIG_PATH, `${JSON.stringify(DEFAULT_CONFIG, null, 2)}\n`);
@@ -110,18 +122,16 @@ export function loadConfig() {
     }
     return { ...DEFAULT_CONFIG };
   }
-  // 旧默认（chain/proxies 从未改过，且仍为默认 fallback 模式）自动升级为「跟随会话供应商
-  // → GLM 直连兜底」新默认；用户改过任何一处（换了模型、填了 key、调过链、改过模式）都不动，
-  // 保持文件为准——pipeline 模式下多级是「逐级加工」语义，不能替用户加级
+  // 旧默认（chain/proxies 从未改过，且仍为默认 fallback 模式）自动升级为新默认；
+  // 用户改过任何一处（换了模型、填了 key、调过链、改过模式）都不动，保持文件为准
   if (
     (onDisk.chainMode || 'fallback') === 'fallback' &&
-    deepEqualUnordered(onDisk.chain, LEGACY_DEFAULT_CHAIN) &&
-    deepEqualUnordered(onDisk.proxies, LEGACY_DEFAULT_PROXIES)
+    LEGACY_DEFAULTS.some((l) => deepEqualUnordered(onDisk.chain, l.chain) && deepEqualUnordered(onDisk.proxies, l.proxies))
   ) {
     const upgraded = { ...DEFAULT_CONFIG, ...onDisk, chain: DEFAULT_CONFIG.chain, proxies: DEFAULT_CONFIG.proxies };
     try {
       atomicWrite(CONFIG_PATH, `${JSON.stringify(upgraded, null, 2)}\n`);
-      log('配置为未自定义的旧默认模板，已自动升级：默认链改为 glm-session（跟随会话供应商）→ glm-flash（GLM 直连兜底）');
+      log('配置为未自定义的旧默认模板，已自动升级为默认两级链：glm-session → glm-flash');
     } catch (e) {
       log(`升级旧默认配置失败：${e.message}`);
     }
@@ -182,6 +192,13 @@ export function sniffMime(buf, file) {
   return MIME_BY_EXT[path.extname(file).toLowerCase()] || 'image/png';
 }
 
+// 调用超时：单代理 timeoutMs 优先（如赠送额度级 10 秒快速失败），否则全局 apiTimeoutMs，再否则默认值
+function timeoutOf(proxy, cfg) {
+  if (Number(proxy?.timeoutMs) > 0) return Number(proxy.timeoutMs);
+  if (Number(cfg?.apiTimeoutMs) > 0) return Number(cfg.apiTimeoutMs);
+  return DEFAULT_CONFIG.apiTimeoutMs;
+}
+
 // 单次视觉调用。cfg 提供超时（apiTimeoutMs）；追问场景 prompt 由调用方给。
 export async function callProxy(proxy, { imageB64, mime, text }, cfg) {
   const apiKey = resolveApiKey(proxy);
@@ -208,7 +225,7 @@ export async function callProxy(proxy, { imageB64, mime, text }, cfg) {
   const body = anthropic
     ? { model: proxy.model, max_tokens: 4096, messages: [{ role: 'user', content }] }
     : { model: proxy.model, messages: [{ role: 'user', content }] };
-  const timeoutMs = Number(cfg?.apiTimeoutMs) > 0 ? Number(cfg.apiTimeoutMs) : DEFAULT_CONFIG.apiTimeoutMs;
+  const timeoutMs = timeoutOf(proxy, cfg);
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
@@ -240,6 +257,13 @@ export async function callProxy(proxy, { imageB64, mime, text }, cfg) {
     }
     if (!desc) throw new Error('模型返回空内容');
     return desc;
+  } catch (e) {
+    // 定时器掐断的请求在 fetch/json 各阶段都表现为 AbortError，统一翻译成可操作的提示
+    const knob = Number(proxy.timeoutMs) > 0 ? 'timeoutMs' : 'apiTimeoutMs';
+    if (ctrl.signal.aborted) {
+      throw new Error(`识别超时（${Math.round(timeoutMs / 1000)} 秒，${knob}）：可重试或缩短问题；经常超时可调大 ${knob}，或换不经 headroom 的直连代理`);
+    }
+    throw e;
   } finally {
     clearTimeout(timer);
   }
@@ -285,7 +309,7 @@ export function providerTables() {
   const byId = new Map();
   const v2 = readJson(path.join(HOME, '.zcode', 'v2', 'config.json')) || {};
   for (const [id, p] of Object.entries((v2 && typeof v2.provider === 'object' ? v2.provider : {}) || {})) {
-    const entry = { id, name: p?.name || id, aliases: [], kind: p?.kind, baseURL: p?.options?.baseURL, apiKey: p?.options?.apiKey };
+    const entry = { id, name: p?.name || id, aliases: [], kind: p?.kind, baseURL: p?.options?.baseURL, apiKey: p?.options?.apiKey, models: Object.keys(p?.models || {}) };
     list.push(entry);
     byId.set(id, entry);
   }
@@ -308,6 +332,7 @@ export function providerTables() {
       kind: r.config?.api?.type, // anthropic-messages / openai-responses / …
       baseURL: r.config?.api?.baseUrl,
       apiKey: r.config?.access?.apiKey,
+      models: [...new Set([...(r.config?.personalModelIds || []), ...(r.config?.modelOrder || [])])],
     };
     list.push(entry);
     byId.set(r.providerId, entry);
@@ -315,8 +340,41 @@ export function providerTables() {
   return list;
 }
 
+// api.type（接口类型）缺失时的格式兜底：代理条目下拉框的 format 优先，其次按接口地址
+// 推断（路径含 /anthropic 视为 Anthropic 兼容），最后按 openai（与 callProxy 的缺省一致）。
+// 模板向导创建的供应商可能不写 api.type（如 Xiaomi MiMo），缺字段不该直接失败。
+function formatFromHint(explicit, baseUrl) {
+  const f = String(explicit || '').trim().toLowerCase();
+  if (f === 'anthropic' || f === 'anthropic-messages') return 'anthropic';
+  if (f === 'openai') return 'openai';
+  return /\/anthropic(\/|$)/i.test(String(baseUrl || '')) ? 'anthropic' : 'openai';
+}
+
+// 首选视觉模型映射表（ADR-0001）：跟随供应商时优先使用的视觉小模型。
+// match 对供应商 id/名称/别名做精确或正则匹配；值为该供应商模型列表里的视觉小模型 id。
+// 未命中映射的供应商用识别代理条目自己的 model 字段。
+export const PREFERRED_VISION_MODELS = [
+  { match: [/^xiaomi-mimo$/i, /^Xiaomi MiMo$/i], model: 'mimo-v2.6-flash' },
+  { match: [/^builtin:bigmodel-start-plan$/], model: 'GLM-5.3-Flash' }, // Trust Build 家模型 id 是大写
+  { match: [/^builtin:(bigmodel|zai)/, /^BigModel/i, /^Z\.ai/i], model: 'glm-5.3-flash' },
+];
+
+// 命中映射表 → 返回该供应商模型列表里的精确写法（各家大小写不同，列表未知则原样返回）；
+// 列表已知但不含该模型、或未命中映射 → 返回 null（调用方回退代理条目自己的 model）
+export function preferredModelOf(hit) {
+  const names = [hit.id, hit.name, ...(hit.aliases || [])];
+  const rule = PREFERRED_VISION_MODELS.find((r) =>
+    r.match.some((m) => names.some((n) => (m instanceof RegExp ? m.test(String(n)) : m === n))),
+  );
+  if (!rule) return null;
+  const list = hit.models || [];
+  if (!list.length) return rule.model;
+  return list.find((x) => String(x).toLowerCase() === rule.model.toLowerCase()) || null;
+}
+
 // 把 useProvider 引用解析为该供应商的 baseUrl/apiKey/格式；解析失败抛错（带原因）。
-export function resolveProviderRef(ref, sessionId) {
+// fallbackFormat 传代理条目下拉框选的格式，仅在供应商缺 api.type 时使用。
+export function resolveProviderRef(ref, sessionId, fallbackFormat) {
   const providers = providerTables();
   const label = (p) => `${p.name}（${p.id}）`;
   let hit = null;
@@ -341,14 +399,16 @@ export function resolveProviderRef(ref, sessionId) {
   if (!isAnthropic && kind.includes('responses')) {
     throw new Error(`供应商 ${label(hit)} 是 ${kind} 格式，视觉代理暂不支持（需 anthropic 或 OpenAI Chat Completions 兼容）`);
   }
-  if (!kind) throw new Error(`供应商 ${label(hit)} 缺少格式信息，无法判断请求格式`);
   if (!hit.baseURL) throw new Error(`供应商 ${label(hit)} 未配置 baseURL`);
   if (!hit.apiKey || !String(hit.apiKey).trim()) throw new Error(`供应商 ${label(hit)} 未配置 API key`);
+  if (!kind) log(`供应商 ${label(hit)} 缺 api.type（接口类型），格式改用兜底推断`);
   return {
     baseUrl: String(hit.baseURL),
     apiKey: String(hit.apiKey).trim(),
-    format: isAnthropic ? 'anthropic' : 'openai',
+    format: kind ? (isAnthropic ? 'anthropic' : 'openai') : formatFromHint(fallbackFormat, hit.baseURL),
     providerName: hit.name,
+    providerId: hit.id,
+    preferredModel: preferredModelOf(hit),
   };
 }
 
@@ -360,8 +420,17 @@ export function resolveChainProxies(cfg, sessionId) {
       if (!proxy) return { name, __missing: true };
       if (!proxy.useProvider) return { ...proxy };
       try {
-        const r = resolveProviderRef(proxy.useProvider, sessionId);
-        return { ...proxy, baseUrl: r.baseUrl, apiKey: r.apiKey, format: r.format, __provider: r.providerName };
+        // 代理条目的 format（下拉框）作为兜底传入：供应商缺 api.type 时用它判断请求格式；
+        // model 优先用映射表给的首选视觉模型，未命中用代理条目自己的 model
+        const r = resolveProviderRef(proxy.useProvider, sessionId, proxy.format);
+        return {
+          ...proxy,
+          baseUrl: r.baseUrl,
+          apiKey: r.apiKey,
+          format: r.format,
+          model: r.preferredModel || proxy.model,
+          __provider: r.providerName,
+        };
       } catch (e) {
         return { ...proxy, __resolveError: e.message };
       }
@@ -373,6 +442,36 @@ export function chainFingerprint(chainProxies) {
     .filter((p) => p && !p.__missing && !p.__resolveError)
     .map((p) => ({ name: p.name, baseUrl: p.baseUrl, model: p.model, format: p.format || 'openai', prompt: p.prompt || '' }));
   return createHash('sha256').update(JSON.stringify(used)).digest('hex');
+}
+
+// —— 连续失败跳过（ADR-0002）：某代理连续失败满 skipAfterFailures 次后，暂时跳过 skipMinutes 分钟，
+// 期间任一次成功即清零计数。状态随缓存文件存盘，钩子每次是新进程也能跨消息生效。 ——
+
+export function skipThresholdsOf(cfg) {
+  // 显式 0 = 不跳过（recordProxyFailure 里 count>0 才设跳过期）；缺省或非法值回落默认
+  const count = Number(cfg?.skipAfterFailures);
+  const minutes = Number(cfg?.skipMinutes);
+  return {
+    count: cfg?.skipAfterFailures !== undefined && Number.isFinite(count) && count >= 0 ? count : DEFAULT_CONFIG.skipAfterFailures,
+    minutes: Number.isFinite(minutes) && minutes > 0 ? minutes : DEFAULT_CONFIG.skipMinutes,
+  };
+}
+
+// 在跳过期返回截止时间戳，否则 null
+export function skipUntilOf(cache, name) {
+  const until = Number(cache?.skip?.[name]?.skipUntil) || 0;
+  return until > Date.now() ? until : null;
+}
+
+export function recordProxyFailure(cache, name, count, minutes) {
+  const s = (cache.skip ||= {});
+  const cur = (s[name] ||= { consecutiveFailures: 0, skipUntil: 0 });
+  cur.consecutiveFailures += 1;
+  if (count > 0 && cur.consecutiveFailures >= count) cur.skipUntil = Date.now() + minutes * 60 * 1000;
+}
+
+export function recordProxySuccess(cache, name) {
+  if (cache?.skip?.[name]) delete cache.skip[name];
 }
 
 export function loadCache() {
@@ -398,6 +497,12 @@ export function saveCache(cache) {
 export async function runChain(cfg, chainProxies, imageBuf, mime) {
   const errors = [];
   const usedLabel = (p) => (p.__provider ? `${p.name}·${p.__provider}` : p.name);
+  const { count, minutes } = skipThresholdsOf(cfg);
+  const cache = loadCache();
+  const skipNote = (proxy, until) =>
+    errors.push(
+      `${usedLabel(proxy)}: 连续失败 ${cache.skip?.[proxy.name]?.consecutiveFailures ?? count} 次，暂时跳过至 ${new Date(until).toLocaleTimeString('zh-CN', { hour12: false })}（skipAfterFailures/skipMinutes 可配）`,
+    );
   if (cfg.chainMode === 'pipeline') {
     let prev = '';
     let lastName = '';
@@ -410,20 +515,30 @@ export async function runChain(cfg, chainProxies, imageBuf, mime) {
         errors.push(`${proxy.name}: ${proxy.__resolveError}`);
         return { desc: '', used: lastName, errors };
       }
+      // pipeline 语义是逐级加工、失败即停：跳过期的代理同样按失败停（Q10 决策）
+      const until = skipUntilOf(cache, proxy.name);
+      if (until) {
+        skipNote(proxy, until);
+        return { desc: '', used: lastName, errors };
+      }
       const prompt = proxy.prompt || DEFAULT_PROMPT;
       const useImage = !prev; // 第一步带图；后续步纯文本加工
       const finalPrompt = prompt.includes('{prev}') ? prompt.replaceAll('{prev}', prev) : prev ? `${prompt}\n\n${prev}` : prompt;
       try {
         prev = await callProxy({ ...proxy, prompt: finalPrompt }, useImage ? { imageB64: imageBuf.toString('base64'), mime } : {}, cfg);
         lastName = usedLabel(proxy);
+        recordProxySuccess(cache, proxy.name);
+        saveCache(cache);
       } catch (e) {
         errors.push(`${proxy.name}: ${e.message}`);
+        recordProxyFailure(cache, proxy.name, count, minutes);
+        saveCache(cache);
         return { desc: '', used: lastName, errors };
       }
     }
     return { desc: prev, used: lastName, errors };
   }
-  // fallback：依次尝试到成功为止
+  // fallback：依次尝试到成功为止；连续失败过多的代理暂时跳过（ADR-0002）
   for (const proxy of chainProxies) {
     if (proxy.__missing) {
       errors.push(`链中代理「${proxy.name}」未定义`);
@@ -433,18 +548,27 @@ export async function runChain(cfg, chainProxies, imageBuf, mime) {
       errors.push(`${proxy.name}: ${proxy.__resolveError}`);
       continue;
     }
+    const until = skipUntilOf(cache, proxy.name);
+    if (until) {
+      skipNote(proxy, until);
+      continue;
+    }
     try {
       const desc = await callProxy(proxy, { imageB64: imageBuf.toString('base64'), mime }, cfg);
+      recordProxySuccess(cache, proxy.name);
+      saveCache(cache);
       return { desc, used: usedLabel(proxy), errors };
     } catch (e) {
       errors.push(`${proxy.name}: ${e.message}`);
+      recordProxyFailure(cache, proxy.name, count, minutes);
+      saveCache(cache);
     }
   }
   return { desc: '', used: '', errors };
 }
 
 // 追问：对指定图片回答一个针对性问题（vision_ask 工具用）。
-// 走链的第一个可用代理（追问要快，不跑 pipeline 全链）；结果按「链指纹+图+问题」缓存。
+// 依次尝试链中可用代理到成功为止（fallback，不跑 pipeline 全链）；结果按「链指纹+图+问题」缓存。
 // 压缩阈值：未配置回落默认 1MB；显式 0 = 禁用压缩；其他非法值也回落默认
 export function compressThresholdBytesOf(cfg) {
   if (cfg?.compressThresholdKB === undefined) return DEFAULT_CONFIG.compressThresholdKB * 1024;
@@ -455,19 +579,37 @@ export function compressThresholdBytesOf(cfg) {
 export async function askImage(cfg, imageFile, question) {
   const { buf, mime } = await prepareImage(imageFile, compressThresholdBytesOf(cfg));
   const chainProxies = resolveChainProxies(cfg, null);
-  const proxy = chainProxies.find((p) => !p.__missing && !p.__resolveError);
-  if (!proxy) {
+  const usable = chainProxies.filter((p) => !p.__missing && !p.__resolveError);
+  if (!usable.length) {
     throw new Error(`链中无可用代理：${chainProxies.map((p) => p.__resolveError || `${p.name} 未定义`).join('；')}`);
   }
   const fp = chainFingerprint(chainProxies);
   const cache = loadCache();
   const key = createHash('sha256').update(fp).update(buf).update(`\nQ:${question}`).digest('hex');
   const hit = cache.entries[key];
-  if (hit?.desc) return { desc: hit.desc, used: hit.model || proxy.name, cached: true };
-  const desc = await callProxy({ ...proxy, prompt: question }, { imageB64: buf.toString('base64'), mime }, cfg);
-  cache.entries[key] = { desc, model: usedLabelOf(proxy), at: Date.now() };
-  saveCache(cache);
-  return { desc, used: usedLabelOf(proxy), cached: false };
+  if (hit?.desc) return { desc: hit.desc, used: hit.model || usable[0].name, cached: true };
+  const errors = [];
+  const { count, minutes } = skipThresholdsOf(cfg);
+  for (const proxy of usable) {
+    const until = skipUntilOf(cache, proxy.name);
+    if (until) {
+      errors.push(`${usedLabelOf(proxy)}: 连续失败过多，暂时跳过至 ${new Date(until).toLocaleTimeString('zh-CN', { hour12: false })}`);
+      continue;
+    }
+    try {
+      const desc = await callProxy({ ...proxy, prompt: question }, { imageB64: buf.toString('base64'), mime }, cfg);
+      cache.entries[key] = { desc, model: usedLabelOf(proxy), at: Date.now() };
+      recordProxySuccess(cache, proxy.name);
+      saveCache(cache);
+      return { desc, used: usedLabelOf(proxy), cached: false };
+    } catch (e) {
+      errors.push(`${usedLabelOf(proxy)}: ${e.message}`);
+      log(`vision_ask ${usedLabelOf(proxy)} 失败：${e.message}`);
+      recordProxyFailure(cache, proxy.name, count, minutes);
+      saveCache(cache);
+    }
+  }
+  throw new Error(`所有代理均失败：${errors.join('；')}`);
 }
 
 // 大图预压缩：视觉上游限制原始图 ≤3.93MB、最长边 2000（超限被拒或被上游再压），
