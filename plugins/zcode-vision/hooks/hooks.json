@@ -1,5 +1,5 @@
 {
-  "description": "UserPromptSubmit 钩子：消息里带图片附件时（attachmentsSummary 含 image 标记），把图片交给 ~/.zcode/zcode-vision.json 配置的视觉代理链识别（默认两级链 glm-session → glm-flash），识别文字以 additionalContext 注入本轮对话。无图、插件关闭、配置缺失一律静默放行；单图识别失败只把失败原因写进注入文本，绝不阻断消息。识别结果按「图片内容 hash + 代理链配置指纹」缓存于 ~/.zcode/zcode-vision-cache.json，同图同链不重复调用。",
+  "description": "UserPromptSubmit 钩子：消息里带图片附件时（attachmentsSummary 含 image 标记），把图片交给 ~/.zcode/zcode-vision.json 配置的视觉代理链识别（默认两级链 glm-session → glm-flash），识别文字以 additionalContext 注入本轮对话。无图、插件关闭、配置缺失一律静默放行；主模型是 flash 小模型时不触发（识别就是它自己，不注入描述文字），主模型能看图时由 forceIntercept 决定（默认照常拦截、交给视觉代理识别注入）；单图识别失败只把失败原因写进注入文本，绝不阻断消息。识别结果按「图片内容 hash + 代理链配置指纹」缓存于 ~/.zcode/zcode-vision-cache.json，同图同链不重复调用。",
   "hooks": {
     "UserPromptSubmit": [
       {

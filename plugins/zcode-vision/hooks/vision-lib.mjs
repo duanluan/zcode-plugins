@@ -52,6 +52,9 @@ export const DEFAULT_CONFIG = {
   compressThresholdKB: 1024, // 超过该大小的图先压缩再识别（最长边固定 2000、JPEG85）；0 = 不压缩
   skipAfterFailures: 4, // 连续失败多少次后暂时跳过该代理；0 = 不跳过
   skipMinutes: 30, // 跳过多久后重试；期间任一次成功即清零计数
+  // 就算主模型自己能看图（如 mimo-v2.6-pro）也拦截识别并注入描述；false = 主模型能看图就不触发。
+  // 主模型是 flash 小模型时无论如何不触发（识别就是它自己，注入描述纯属重复）
+  forceIntercept: true,
 };
 export const MAX_CACHE_ENTRIES = 200;
 
@@ -271,12 +274,11 @@ export async function callProxy(proxy, { imageB64, mime, text }, cfg) {
 
 // —— 供应商跟随：useProvider = "session"（当前会话所用供应商）或供应商名/ID ——
 
-// 会话 → 供应商：tasks.model 列格式 "<providerId>/<modelId>"。
-// sessionId 为空（/vision test 与 MCP 追问无会话上下文）时取最近一个会话的供应商。
-export function sessionProviderId(sessionId) {
+// 会话 → 模型行：tasks.model 列格式 "<providerId>/<modelId>"，返回整行（拿不到返回 null）。
+// sessionId 为空（/vision test 与 MCP 追问无会话上下文）时取最近一个会话的记录。
+function sessionModelRaw(sessionId) {
   const db = path.join(HOME, '.zcode', 'v2', 'tasks-index.sqlite');
   if (!fs.existsSync(db)) return null;
-  const modelOf = (raw) => (raw && String(raw).includes('/') ? String(raw).split('/')[0] : null);
   try {
     // 优先 node:sqlite（Node ≥22.5）；不可用或库被占用时退回 sqlite3 CLI
     try {
@@ -286,7 +288,7 @@ export function sessionProviderId(sessionId) {
         ? d.prepare('SELECT model FROM tasks WHERE task_id = ? ORDER BY updated_at DESC LIMIT 1').get(sessionId)
         : d.prepare('SELECT model FROM tasks ORDER BY updated_at DESC LIMIT 1').get();
       d.close();
-      return modelOf(row?.model);
+      return row?.model ? String(row.model) : null;
     } catch { /* fall through */ }
     // CLI 回退：sessionId 内插进 SQL，先做白名单校验防注入（宿主生成的 id 形如 sess_<uuid>）
     if (sessionId && !/^[\w-]+$/.test(sessionId)) return null;
@@ -296,10 +298,49 @@ export function sessionProviderId(sessionId) {
       [db, `SELECT model FROM tasks ${where}ORDER BY updated_at DESC LIMIT 1;`],
       { encoding: 'utf8', timeout: 5000 },
     );
-    return modelOf(out.trim());
+    return out.trim() || null;
   } catch {
     return null;
   }
+}
+
+export function sessionProviderId(sessionId) {
+  const raw = sessionModelRaw(sessionId);
+  return raw && raw.includes('/') ? raw.split('/')[0] : null;
+}
+
+// "<providerId>/<modelId>$档位" → 只留模型名（"xiaomi-mimo/mimo-v2.6-pro$enabled" → "mimo-v2.6-pro"）
+function modelIdOf(raw) {
+  const s = String(raw || '').trim();
+  const id = (s.includes('/') ? s.split('/').slice(1).join('/') : s).split('$')[0].trim();
+  return id || s;
+}
+
+// 会话 → 主模型名（"<providerId>/<modelId>" 的后半段，去掉 $ 档位标签如 "mimo-v2.6-pro$enabled"）；
+// 拿不到返回 null（调用方按认不出处理）
+export function sessionModelId(sessionId) {
+  const raw = sessionModelRaw(sessionId);
+  return raw ? modelIdOf(raw) : null;
+}
+
+// —— 主模型感知（按名字猜能力）：任务索引只有 "<providerId>/<modelId>"，没有能力元数据 ——
+// flash 系（glm-5.3-flash / mimo-v2.6-flash 等）本身就是视觉小模型，识别就是它自己；
+// 其他带 pro / vision / vl / 版本号尾缀 v 的名字多半是多模态大模型（mimo-v2.6-pro、glm-4.5v…）；
+// 认不出的（glm-5.3、deepseek-v3…）按纯文本处理——照常识别注入（偏保守）。
+export function mainModelKind(modelId) {
+  const id = modelIdOf(modelId).toLowerCase();
+  if (!id) return 'unknown';
+  if (id.includes('flash')) return 'flash';
+  if (/(^|[-._])(pro|vision|multimodal|vl)([-._]|$)|[-._][\d.]*v$/.test(id)) return 'vision';
+  return 'unknown';
+}
+
+// 是否因主模型跳过识别注入：flash 主模型永远跳过（注入描述纯属重复）；
+// 能看图的主模型看 forceIntercept（默认 true = 照常拦截识别注入；显式 false 才跳过）
+export function skipByMainModel(cfg, modelId) {
+  const kind = mainModelKind(modelId);
+  if (kind === 'flash') return true;
+  return kind === 'vision' && cfg?.forceIntercept === false;
 }
 
 // 供应商来源两张表：~/.zcode/v2/config.json 的 provider.<id>（优先）与

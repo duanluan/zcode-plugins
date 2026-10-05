@@ -6,7 +6,7 @@ ZCode 插件市场，市场名 `duanluan-zcode-plugins`。围绕 token 效率与
 
 | 插件 | 版本 | 作用 | 命令（**加粗 = 装后必做**） |
 |---|---|---|---|
-| [ZCode Vision](plugins/zcode-vision/README.md) | 1.4.0 | 纯文本模型也能读图（默认跟随会话供应商） | **/vision-setup**、/vision-proxy、/vision-chain、/vision |
+| [ZCode Vision](plugins/zcode-vision/README.md) | 1.5.0 | 纯文本模型也能读图（默认跟随会话供应商） | **/vision-setup**、/vision-proxy、/vision-chain、/vision |
 | [Headroom](plugins/headroom/README.md) | 1.1.0 | 请求层压缩，省对话 token；CPU/省电自动切换压缩设备 | **/hr-setup**、/hr-status、/hr-proxy、/hr |
 | [rtk](plugins/rtk/README.md) | 1.2.0 | 命令输出源头压缩 60-90% | **/rtk-setup**、/rtk-status、/rtk |
 | [OpenCodeReview](plugins/open-code-review/README.md) | 1.0.1 | Git 变更行级 AI 评审 | /ocr-delegate-review、/ocr-review、/ocr-scan、/ocr |

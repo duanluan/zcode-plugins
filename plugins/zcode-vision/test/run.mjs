@@ -1,5 +1,6 @@
 // zcode-vision 回归测试：node plugins/zcode-vision/test/run.mjs
-// 覆盖：格式兜底、首选视觉模型映射、连续失败跳过、默认模板与旧配置升级、真实配置解析。
+// 覆盖：格式兜底、首选视觉模型映射、连续失败跳过、主模型感知（flash 跳过/forceIntercept）、
+// 默认模板与旧配置升级、真实配置解析。
 // 涉及读盘的测试用假 HOME 起子进程（inFakeHome），不碰真实的 ~/.zcode 配置。
 
 import assert from 'node:assert/strict';
@@ -7,10 +8,12 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import * as lib from '../hooks/vision-lib.mjs';
 
 const LIB = fileURLToPath(new URL('../hooks/vision-lib.mjs', import.meta.url));
+const require_ = createRequire(import.meta.url);
 
 let passed = 0;
 let failed = 0;
@@ -188,6 +191,59 @@ t('跳过机制：过期的跳过期不再生效', () => {
   assert.equal(lib.skipUntilOf(cache, 'c'), null);
 });
 
+// —— 主模型感知（flash 跳过 / forceIntercept） ——
+
+t('主模型判断：flash 系 → flash；能看图的 → vision；认不出 → unknown', () => {
+  assert.equal(lib.mainModelKind('glm-5.3-flash'), 'flash');
+  assert.equal(lib.mainModelKind('mimo-v2.6-flash'), 'flash');
+  assert.equal(lib.mainModelKind('GLM-5.3-Flash'), 'flash');
+  assert.equal(lib.mainModelKind('xiaomi-mimo/mimo-v2.6-flash'), 'flash');
+  assert.equal(lib.mainModelKind('mimo-v2.6-pro'), 'vision');
+  assert.equal(lib.mainModelKind('glm-4.5v'), 'vision');
+  assert.equal(lib.mainModelKind('qwen2.5-vl-72b'), 'vision');
+  assert.equal(lib.mainModelKind('glm-5.3'), 'unknown');
+  assert.equal(lib.mainModelKind('deepseek-v3'), 'unknown');
+  assert.equal(lib.mainModelKind(''), 'unknown');
+  // 真实任务索引里 model 列带 $ 档位标签（如 "mimo-v2.6-pro$enabled"），判断前要剥掉
+  assert.equal(lib.mainModelKind('mimo-v2.6-pro$enabled'), 'vision');
+  assert.equal(lib.mainModelKind('xiaomi-mimo/glm-5.3-flash$max'), 'flash');
+  assert.equal(lib.mainModelKind('glm-5.3$max'), 'unknown');
+});
+
+t('主模型跳过：flash 永远跳过；能看图看 forceIntercept（默认 true 照常识别）', () => {
+  assert.equal(lib.skipByMainModel({ forceIntercept: true }, 'mimo-v2.6-flash'), true);
+  assert.equal(lib.skipByMainModel({ forceIntercept: true }, 'mimo-v2.6-pro'), false);
+  assert.equal(lib.skipByMainModel({ forceIntercept: false }, 'mimo-v2.6-pro'), true);
+  assert.equal(lib.skipByMainModel({}, 'mimo-v2.6-pro'), false); // 缺省 = true
+  assert.equal(lib.skipByMainModel({ forceIntercept: false }, 'glm-5.3'), false); // 纯文本照常识别
+  assert.equal(lib.skipByMainModel({ forceIntercept: false }, null), false); // 认不出照常识别
+});
+
+t('会话模型：tasks.model 列拆出 providerId / modelId', () => {
+  let DatabaseSync = null;
+  try {
+    DatabaseSync = require_('node:sqlite').DatabaseSync;
+  } catch {
+    /* 旧 node 没有 node:sqlite，跳过（lib 有 sqlite3 CLI 回退但这里不建库） */
+  }
+  if (!DatabaseSync) {
+    console.log('  （node:sqlite 不可用，跳过）');
+    return;
+  }
+  const { result } = inFakeHome(
+    (dir) => {
+      const db = new DatabaseSync(path.join(dir, '.zcode', 'v2', 'tasks-index.sqlite'));
+      db.exec('CREATE TABLE tasks (task_id TEXT, model TEXT, updated_at INTEGER)');
+      db.prepare('INSERT INTO tasks VALUES (?,?,?)').run('sess_a', 'xiaomi-mimo/mimo-v2.6-flash$enabled', 1);
+      db.close();
+    },
+    `return { p: lib.sessionProviderId('sess_a'), m: lib.sessionModelId('sess_a'), none: lib.sessionModelId('sess_z') };`,
+  );
+  assert.equal(result.p, 'xiaomi-mimo');
+  assert.equal(result.m, 'mimo-v2.6-flash');
+  assert.equal(result.none, null);
+});
+
 // —— 默认模板与旧配置升级 ——
 
 const legacyV1 = () => ({
@@ -218,6 +274,7 @@ t('默认模板：无配置文件时生成默认两级链并写盘', () => {
   assert.equal(written.proxies.length, 2);
   assert.equal(written.skipAfterFailures, 4);
   assert.equal(written.skipMinutes, 30);
+  assert.equal(written.forceIntercept, true);
 });
 
 t('旧配置升级：v1 单代理默认 → 默认两级链（补 glm-session 级）', () => {

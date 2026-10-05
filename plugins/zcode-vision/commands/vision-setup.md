@@ -36,7 +36,8 @@ zcode-vision 首次安装或配置混乱时运行本向导。目标产物是合�
   "apiTimeoutMs": 120000,
   "compressThresholdKB": 1024,
   "skipAfterFailures": 4,
-  "skipMinutes": 30
+  "skipMinutes": 30,
+  "forceIntercept": true
 }
 ```
 
@@ -46,6 +47,7 @@ zcode-vision 首次安装或配置混乱时运行本向导。目标产物是合�
    - **API key**：默认留空自动获取（依次尝试环境变量 `GLM_API_KEY` → `~/.zcode/v2/config.json` 里 bigmodel 供应商的 key，默认即可用）。**不要引导用户在对话里粘贴 key**（会留在会话记录里）；确要显式配置，告知用户事后执行 `/vision-proxy edit <名称> apiKey=<key>` 或直接编辑 `~/.zcode/zcode-vision.json`。
    - **是否走本地 headroom**：只影响 `glm-flash` 直连兜底这一级——走则 baseUrl 改为 `http://127.0.0.1:8787`（format 按上游保持 anthropic；依赖 headroom 在运行——headroom 插件会在会话启动时自动拉起它）。会话供应商本身指向 headroom 时，`glm-session` 跟随它已等于走 headroom，这级无需再改。并说明：不走 headroom 时，识别文字带给主模型后同样会随请求被 headroom 压缩，这个选择只影响「识别调用本身」是否经代理。
    - **大图压缩阈值 compressThresholdKB**（可跳过用默认）：超过该大小（KB）的图先压缩再识别（最长边 2000、JPEG85）；上游限制原始图约 3.9MB/最长边 2000，大图不压会被拒或超时。默认 1024；0 = 不压缩（除非确认图片都很小，不推荐）。写入配置顶层，事后用 `/vision config compressThresholdKB=<值>` 调整。
+   - **主模型能看图时是否仍拦截 forceIntercept**（可跳过用默认）：默认 true——就算主模型支持图片输入（如 mimo-v2.6-pro）也拦截图片、交给视觉代理识别并注入描述文字。设为 false 则主模型能看图时直接放行、不触发钩子。注意：主模型是 flash 小模型（glm-5.3-flash / mimo-v2.6-flash 等）时无论如何不拦截（识别就是它自己，注入描述纯属重复）。事后用 `/vision config forceIntercept=<true|false>` 或 zcode-pro 面板调整。
    - baseUrl 只需给到 `/api/anthropic`、`/api/paas/v4` 这一层：`anthropic` 格式自动补 `/v1/messages`，`openai` 格式自动补 `/chat/completions`。
 4. **写入**：python3 修改对应字段后 cat 确认。
 5. **验证**：定位钩子脚本并运行测试（同 /vision test 的做法）：

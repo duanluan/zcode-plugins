@@ -9,7 +9,8 @@
 //   不给路径则取最近会话目录里最新的一张图。
 //
 // 约定：
-// - 钩子拿不到会话所用模型，无法只在「主模型不支持图片」时触发；有图片附件即识别注入。
+// - 主模型名从任务索引反查（tasks.model = "<providerId>/<modelId>"），按名字猜能力：
+//   flash 小模型不触发（识别就是它自己）；能看图的主模型看 forceIntercept 选项（默认照常识别注入）。
 // - 配置唯一事实来源 ~/.zcode/zcode-vision.json（/vision-* 命令与 zcode-pro 面板编辑同一文件）。
 
 import { createHash } from 'node:crypto';
@@ -26,6 +27,8 @@ import {
   prepareImage,
   resolveChainProxies,
   runChain,
+  sessionModelId,
+  skipByMainModel,
 } from './vision-lib.mjs';
 
 // 钩子总超时 180s（hooks.json），留 15s 余量自行收尾，避免被强杀后一点输出都没有
@@ -84,7 +87,7 @@ function collectInlineImages(sessionId, pollMs) {
 function buildContext(results, models) {
   const ok = results.filter((r) => r.desc);
   const lines = [
-    `[zcode-vision] 用户本轮发送了 ${results.length} 张图片（钩子无法感知主模型是否支持图片）。` +
+    `[zcode-vision] 用户本轮发送了 ${results.length} 张图片。` +
       `以下为视觉代理${models.size ? `（${[...models].join(' → ')}）` : ''}生成的识别文字，请当作图片内容使用：`,
     '',
   ];
@@ -125,6 +128,14 @@ async function main() {
 
   const { paths, cacheCount } = parseImageAttachments(payload.attachmentsSummary);
   if (!paths.length && !cacheCount) process.exit(0);
+
+  // 主模型感知：flash 小模型不触发（识别就是它自己，注入描述纯属重复）；
+  // 其他能看图的主模型看 forceIntercept（默认 true = 照常拦截识别注入）
+  const mainModel = sessionModelId(payload.session_id);
+  if (skipByMainModel(cfg, mainModel)) {
+    log(`主模型 ${mainModel || '未知'}：按规则跳过识别注入`);
+    process.exit(0);
+  }
 
   const files = [];
   for (const p of paths) {
