@@ -13,7 +13,7 @@ ocr $ARGUMENTS
 ```
 
 - 若 `$ARGUMENTS` 为空：展示简要用法说明（上面的示例 + `ocr --help` 的子命令清单），不执行任何命令
-- 若 `ocr` 未安装：`npm i -g @alibaba-group/open-code-review`
+- 若 `ocr` 未安装或 `command -v ocr` 找不到：跑 `/ocr-setup`（安装/修复并把路径记录到 `~/.zcode/open-code-review.json`）；用配置里 `nativeBinary` 的绝对路径执行也可兜底
 - **交互式界面会挂起**：`ocr config provider`、`ocr config model` 这类交互式 TUI 不要直接执行，告诉用户去终端里跑；配置项改动用非交互方式代替：`ocr config set llm.url <url>` 等
 - `ocr viewer` 会启动 WebUI 会话查看器（长驻进程）：放后台运行，把访问地址（如 http://127.0.0.1:端口）作为链接返给用户
 

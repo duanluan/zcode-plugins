@@ -9,13 +9,13 @@ ZCode 插件市场，市场名 `duanluan-zcode-plugins`。围绕 token 效率与
 | [ZCode Vision](plugins/zcode-vision/README.md) | 1.5.0 | 纯文本模型也能读图（默认跟随会话供应商） | **/vision-setup**、/vision-proxy、/vision-chain、/vision |
 | [Headroom](plugins/headroom/README.md) | 1.1.0 | 请求层压缩，省对话 token；CPU/省电自动切换压缩设备 | **/hr-setup**、/hr-status、/hr-proxy、/hr |
 | [rtk](plugins/rtk/README.md) | 1.2.0 | 命令输出源头压缩 60-90% | **/rtk-setup**、/rtk-status、/rtk |
-| [OpenCodeReview](plugins/open-code-review/README.md) | 1.0.1 | Git 变更行级 AI 评审 | /ocr-delegate-review、/ocr-review、/ocr-scan、/ocr |
+| [OpenCodeReview](plugins/open-code-review/README.md) | 1.1.0 | Git 变更行级 AI 评审 | **/ocr-setup**、/ocr-delegate-review、/ocr-review、/ocr-scan、/ocr |
 
-点击插件名进入该插件的完整文档（OpenCodeReview 无装后必做命令）。所有命令的菜单简介里都带用法示例；大部分参数原样传给底层命令行工具。
+点击插件名进入该插件的完整文档。所有命令的菜单简介里都带用法示例；大部分参数原样传给底层命令行工具。
 
 ## 📦 安装
 
-前置：Git ≥ 2.41。命令行工具按需自动安装（ocr 缺失时自动 `npm i -g`；headroom、rtk 由各自的 setup 命令安装）。
+前置：Git ≥ 2.41。命令行工具按需安装（ocr、headroom、rtk 由各自的 setup 命令安装）。
 
 1. ZCode → 插件市场 → 右上角「添加」→ 添加插件市场，填写 `duanluan/zcode-plugins`
 2. 找到 **duanluan-zcode-plugins** 市场，安装需要的插件并启用

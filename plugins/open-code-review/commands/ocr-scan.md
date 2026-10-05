@@ -24,7 +24,7 @@ ocr scan --audience agent $ARGUMENTS
 - `--path internal/agent`：扫描指定目录；**多个目标用逗号分隔**（如 `--path 'src/,internal/agent'`），均为仓库相对路径
 - `-p` / `--preview`：只列出将扫描哪些文件，不调用 LLM（干跑，大仓库先跑这个确认范围）
 - 捕获完整 stdout，超时设为 10 分钟（全量扫描较慢，`--timeout` 单位为分钟可加大）
-- 若 `ocr` 未安装：`npm i -g @alibaba-group/open-code-review`
+- 若 `ocr` 未安装或 `command -v ocr` 找不到：跑 `/ocr-setup`（安装/修复并把路径记录到 `~/.zcode/open-code-review.json`）；用配置里 `nativeBinary` 的绝对路径执行也可兜底
 - 若报 LLM 鉴权 / 余额 / 连接错误：告知用户 ocr 的模型配置有问题，并给出 README 中的 GLM coding 端点修复方法
 
 ### 第 2 步：过滤与汇报

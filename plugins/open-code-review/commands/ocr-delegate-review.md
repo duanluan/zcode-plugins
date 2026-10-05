@@ -31,7 +31,7 @@ ocr delegate preview $ARGUMENTS
   - `--commit <sha>` / `-c <sha>`：单提交模式
   - `--from <base> --to <branch>`：分支范围（merge-base）模式
   - `--background "业务背景"` / `-b "..."`：业务上下文，评审时参考
-- 若 `ocr` 未安装：`npm i -g @alibaba-group/open-code-review`
+- 若 `ocr` 未安装或 `command -v ocr` 找不到：跑 `/ocr-setup`（安装/修复并把路径记录到 `~/.zcode/open-code-review.json`）；用配置里 `nativeBinary` 的绝对路径执行也可兜底
 
 该命令输出模式（mode）、ref 元数据和可评审文件列表（含排除项及原因）。
 

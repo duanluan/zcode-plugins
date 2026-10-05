@@ -20,7 +20,7 @@ ocr review --audience agent $ARGUMENTS
 
 - 无参数：工作区模式，评审暂存 + 未暂存 + 未跟踪的变更
 - 捕获完整 stdout，超时设为 5 分钟（`--timeout` 默认 15 分钟，可加大）
-- 若 `ocr` 未安装：`npm i -g @alibaba-group/open-code-review`
+- 若 `ocr` 未安装或 `command -v ocr` 找不到：跑 `/ocr-setup`（安装/修复并把路径记录到 `~/.zcode/open-code-review.json`）；用配置里 `nativeBinary` 的绝对路径执行也可兜底
 - 若报 LLM 鉴权 / 余额 / 连接错误：告知用户，并建议改用 `/ocr-delegate-review`（委托模式，无需 ocr LLM 配置）
 
 ### 第 2 步：过滤与评估

@@ -2,7 +2,7 @@
 
 [← 返回插件总览](../../README.md#-插件一览)
 
-**装后必做：无。** 委托模式由 ZCode 自身模型完成评审，**不需要为 ocr 配置任何 LLM**，装完即可用 `/ocr-delegate-review`。
+**装后必做：`/ocr-setup`**——安装 ocr 命令（npm 全局包，缺 bin 链接时自动修复），并把二进制路径记录到 `~/.zcode/open-code-review.json`。委托模式由 ZCode 自身模型完成评审，**不需要为 ocr 配置任何 LLM**，装完即可用 `/ocr-delegate-review`。
 
 ### 🌟 委托模式（推荐）`/ocr-delegate-review`
 
