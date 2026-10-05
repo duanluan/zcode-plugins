@@ -2,9 +2,10 @@
 // MCP stdio 单例桥：同一台机器上的多个 ZCode 运行时（主会话 + 子代理等）都按
 // .mcp.json 各自拉起一份 MCP 服务进程，headroom 这类服务单份占上百 MB，并发
 // 子代理时成倍放大内存压力。本桥让首个实例兼任守护方（持有真正的服务进程），
-// 后续实例经本地套接字复用同一个 MCP 会话：initialize 只发给服务一次（结果缓存
-// 后原样应答后来者），请求/应答经 id 重映射表路由回各自客户端（id 原值原样保留，
-// 类型不改），服务端通知广播给所有客户端。全部客户端断开并空闲一段时间后，
+// 后续实例经本地套接字复用同一个 MCP 会话：initialize 只发给服务一次（在途时
+// 后来者的握手挂起、应答后扇出，再后来的直接用缓存应答），请求/应答经 id 重映射
+// 表路由回各自客户端（id 原值原样保留，类型不改；客户端的取消通知按在途请求
+// 改写 id 后转发），服务端通知广播给所有客户端。全部客户端断开并空闲一段时间后，
 // 守护方结束服务进程并退出。套接字机制不可用时自动退化为直接执行服务命令。
 //
 // 用法: node bridge.mjs -- <服务命令> [参数...]
@@ -16,7 +17,7 @@
 
 import net from 'node:net';
 import { spawn } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { chmodSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -67,7 +68,9 @@ function onLines(sock, cb) {
 // 由宿主（ZCode）按 MCP 连接失败自行处理。
 // =====================================================================
 function runClient() {
-  const clientId = Math.random().toString(16).slice(2, 6);
+  // 12 位十六进制（48bit）：短 id 并发客户端会碰撞——守护方按 id 路由应答，
+  // 碰撞时连接互相覆盖、应答串线
+  const clientId = randomBytes(6).toString('hex');
   const sock = net.connect(sockPath);
   const send = (line) => { try { sock.write(JSON.stringify({ c: clientId, d: line }) + '\n'); } catch { /* ignore */ } };
   const stop = () => { try { sock.destroy(); } catch { /* ignore */ } process.exit(1); };
@@ -98,6 +101,8 @@ function createDaemon() {
   let server = null;
   let serverDead = false;
   let initResult = null;        // 首个 initialize 的结果缓存（后来客户端直接复用）
+  let initInFlight = false;     // 首个 initialize 已发出、应答未回（期间的握手挂起等扇出）
+  const initWaiters = [];       // 等首个 initialize 应答的后来客户端 [{ client, id }]
   let sawInitNotified = false;  // initialized 通知只向服务放行一份
   const pending = new Map();    // 发往服务的请求 id -> { client, id, init? }
   const serverReqs = new Set(); // 服务端主动发起、尚无应答的请求 id（首个应答生效）
@@ -139,7 +144,17 @@ function createDaemon() {
       const hit = pending.get(String(msg.id));
       if (!hit) return; // 服务端主动请求的重复应答（已放行首份），丢弃
       pending.delete(String(msg.id));
-      if (hit.init && msg.result !== undefined) initResult = msg.result;
+      if (hit.init) {
+        // 首个握手应答：缓存成功结果（失败不缓存，之后的客户端可重新握手），
+        // 并扇出给在途期间到达的后来客户端
+        initInFlight = false;
+        if (msg.result !== undefined) initResult = msg.result;
+        for (const w of initWaiters.splice(0)) {
+          const out = { jsonrpc: '2.0', id: w.id };
+          if (msg.result !== undefined) out.result = msg.result; else out.error = msg.error;
+          sendTo(w.client, out);
+        }
+      }
       const out = { jsonrpc: '2.0', id: hit.id };
       if (msg.result !== undefined) out.result = msg.result; else out.error = msg.error;
       sendTo(hit.client, out);
@@ -153,10 +168,19 @@ function createDaemon() {
     let msg;
     try { msg = JSON.parse(rawLine); } catch { return; }
     if (isRequest(msg)) {
-      if (msg.method === 'initialize' && initResult) {
-        // 后来客户端：直接以首个会话的握手结果应答，服务侧不重复 initialize
-        sendTo(clientId, { jsonrpc: '2.0', id: msg.id, result: initResult });
-        return;
+      if (msg.method === 'initialize') {
+        if (initResult) {
+          // 握手结果已有缓存：直接应答，服务侧不重复 initialize
+          sendTo(clientId, { jsonrpc: '2.0', id: msg.id, result: initResult });
+          return;
+        }
+        if (initInFlight) {
+          // 首个 initialize 还在途：挂起等扇出。直接放行会给服务发第二次握手，
+          // 服务端通常按协议错误拒绝，该客户端的工具将全部不可用
+          initWaiters.push({ client: clientId, id: msg.id });
+          return;
+        }
+        initInFlight = true;
       }
       ensureServer();
       const daemonId = `b${seq++}`;
@@ -166,9 +190,21 @@ function createDaemon() {
     }
     if (isNotification(msg)) {
       ensureServer();
-      if (msg.method === 'initialized') {
+      if (msg.method === 'initialized' || msg.method === 'notifications/initialized') {
         if (sawInitNotified) return; // 重复的握手完成通知不再打扰服务
         sawInitNotified = true;
+      }
+      // 取消通知带的是客户端自己的请求 id：找到本客户端的在途请求改写成守护方
+      // id 再转发；找不到（已完成/不属于它）就丢弃——原样转发会误伤服务端认识的
+      // 恰好同 id 的其他请求
+      if (msg.method === 'notifications/cancelled' && msg.params && msg.params.requestId !== undefined && msg.params.requestId !== null) {
+        let target = null;
+        for (const [d, hit] of pending) {
+          if (hit.client === clientId && String(hit.id) === String(msg.params.requestId)) { target = d; break; }
+        }
+        if (!target) { log(`client ${clientId} 取消的请求不在途，丢弃`); return; }
+        toServer({ ...msg, params: { ...msg.params, requestId: target } });
+        return;
       }
       toServer(msg);
       return;
