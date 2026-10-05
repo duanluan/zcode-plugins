@@ -5,7 +5,7 @@
       "command": "/bin/sh",
       "args": [
         "-c",
-        "for c in \"$(command -v headroom 2>/dev/null)\" \"$HOME/.local/bin/headroom\" \"$HOME/miniforge3/bin/headroom\" \"$HOME/.cargo/bin/headroom\" /usr/local/bin/headroom /usr/bin/headroom; do [ -x \"$c\" ] && exec \"$c\" mcp serve; done; exit 127"
+        "h=''; for c in \"$(command -v headroom 2>/dev/null)\" \"$HOME/.local/bin/headroom\" \"$HOME/miniforge3/bin/headroom\" \"$HOME/.cargo/bin/headroom\" /usr/local/bin/headroom /usr/bin/headroom; do [ -x \"$c\" ] && h=\"$c\" && break; done; [ -z \"$h\" ] && exit 127; b=\"$ZCODE_PLUGIN_ROOT/mcp/bridge.mjs\"; if [ -n \"$ZCODE_PLUGIN_ROOT\" ] && [ -f \"$b\" ] && command -v node >/dev/null 2>&1; then exec node \"$b\" -- \"$h\" mcp serve; fi; exec \"$h\" mcp serve"
       ]
     }
   }
