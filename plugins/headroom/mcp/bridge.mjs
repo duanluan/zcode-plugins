@@ -131,7 +131,8 @@ function createDaemon() {
   function ensureServer() {
     if (server || serverDead) return;
     log('启动服务:', serverArgv.join(' '));
-    server = spawn(serverArgv[0], serverArgv.slice(1), { stdio: ['pipe', 'pipe', 'inherit'] });
+    // windowsHide：Windows 上服务命令常是控制台 exe（headroom.exe），不隐藏会弹黑窗
+    server = spawn(serverArgv[0], serverArgv.slice(1), { stdio: ['pipe', 'pipe', 'inherit'], windowsHide: true });
     server.on('error', (err) => { log('服务进程启动失败:', err.message); serverDead = true; shutdown(); });
     onLines(server.stdout, handleServerLine);
     server.on('exit', () => { serverDead = true; log('服务进程退出'); shutdown(); });
@@ -316,7 +317,8 @@ if (process.argv.includes('--daemon-role')) {
 } else {
   const directRun = () => {
     log('回退直连:', serverArgv.join(' '));
-    const child = spawn(serverArgv[0], serverArgv.slice(1), { stdio: 'inherit' });
+    // windowsHide：服务命令常是控制台 exe，不隐藏会弹黑窗
+    const child = spawn(serverArgv[0], serverArgv.slice(1), { stdio: 'inherit', windowsHide: true });
     child.on('error', () => process.exit(127));
     child.on('exit', (c) => process.exit(c ?? 0));
   };
@@ -331,6 +333,9 @@ if (process.argv.includes('--daemon-role')) {
         detached: true,
         stdio: 'ignore',
         env: process.env,
+        // 关键：detached 在 Windows 上会为子进程新分配控制台，不配 windowsHide
+        // 就是那个可见的 headroom 黑窗（守护方再孵化 headroom.exe 共用该控制台）
+        windowsHide: true,
       });
       child.unref();
       // 等守护方就绪（监听竞争输家会退出，赢家通常百毫秒内就绪）

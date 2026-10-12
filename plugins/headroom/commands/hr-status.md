@@ -1,7 +1,7 @@
 ---
 description: 查看 Headroom 代理状态、健康检查与 token 节省报告。示例：/hr-status ｜ /hr-status --no-doctor ｜ /hr-status --dashboard
 argument-hint: [--no-doctor] [--dashboard]
-allowed-tools: Bash(sh:*), Bash(headroom:*), Bash(curl:*), Bash(pgrep:*), Bash(command -v:*), Bash(ls:*)
+allowed-tools: Bash(sh:*), Bash(node:*), Bash(headroom:*), Bash(curl:*), Bash(pgrep:*), Bash(command -v:*), Bash(ls:*)
 ---
 
 检查 Headroom 压缩代理与本机接入状态，汇报 token 节省情况。**`$ARGUMENTS` 原样作为参数来源**（`--no-doctor`、`--dashboard`），按下方约定使用。
@@ -13,8 +13,8 @@ allowed-tools: Bash(sh:*), Bash(headroom:*), Bash(curl:*), Bash(pgrep:*), Bash(c
 3. **后端与电源**（有插件脚本时一条命令出全）：
 
 ```bash
-HR_HOOK=$(ls ~/.zcode/cli/plugins/cache/duanluan-zcode-plugins/headroom/*/hooks/ensure-proxy.sh 2>/dev/null | tail -1)
-[ -n "$HR_HOOK" ] && sh "$HR_HOOK" status
+HR_DIR=$(ls -d ~/.zcode/cli/plugins/cache/duanluan-zcode-plugins/headroom/*/hooks 2>/dev/null | tail -1)
+[ -n "$HR_DIR" ] && "$HR_DIR/runtime.cmd" "$HR_DIR/ensure-proxy.mjs" status   # 旧版没有 runtime.cmd 时改用 sh …/ensure-proxy.sh status
 ```
 
 4. **健康检查**：`headroom doctor`（用户传 `--no-doctor` 时跳过）

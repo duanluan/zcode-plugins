@@ -1,7 +1,7 @@
 ---
 description: 一键接入 Headroom 压缩代理：检查/安装 headroom、启动代理（上游默认 GLM）、给出 ZCode 模型设置要填的地址并验证。示例：/hr-setup ｜ /hr-setup --port 8787 ｜ /hr-setup --skip-install
 argument-hint: [--port <端口>] [--skip-install] [--upstream-anthropic <url>] [--upstream-openai <url>]
-allowed-tools: Bash(headroom:*), Bash(curl:*), Bash(command -v:*), Bash(nohup:*), Bash(pgrep:*), Bash(uv:*), Bash(pipx:*), Bash(pip install*)
+allowed-tools: Bash(headroom:*), Bash(node:*), Bash(curl:*), Bash(command -v:*), Bash(nohup:*), Bash(pgrep:*), Bash(uv:*), Bash(pipx:*), Bash(pip install*), Bash(pip:*), Bash(pip3:*), Bash(py:*)
 ---
 
 一键把 Headroom（本地 LLM 压缩代理，官方支持 ZCode）接到当前 ZCode：装好 → 起代理 → 给出要在 ZCode 界面里填的地址 → 验证。**`$ARGUMENTS` 原样作为参数来源**（`--port`、`--skip-install`、`--upstream-*`），各步骤按下方约定使用，不做改写。
@@ -22,9 +22,18 @@ command -v headroom && headroom --version
 2. `pipx install "headroom-ai[all]"`
 3. `pip install --user "headroom-ai[all]"`（要求 Python ≥ 3.10）
 
+Windows 上没有 `command -v`/`uv`/`pipx` 时：`where headroom` 确认，未装则用 `py -m pip install "headroom-ai[all]"`（或 `python -m pip install …`）。
+
 ## 第 2 步：启动代理（上游指向 GLM，开机自启优先）
 
-**优先：systemd 用户服务**（开机自启、随登录拉起、崩溃自动重启——`nohup` 起的进程重启电脑后会丢失，导致 ZCode 提示"重新连接中"）：
+**Windows：没有 systemd，直接用插件脚本**（经插件启动器拉起，无需预装 node，自动带上 CPU/省电配置与电源监视器）：
+
+```powershell
+cmd /c "<插件目录>\hooks\runtime.cmd" "<插件目录>\hooks\ensure-proxy.mjs" start
+# 插件目录形如 C:\Users\<用户>\.zcode\cli\plugins\cache\duanluan-zcode-plugins\headroom\<版本>
+```
+
+**Linux/macOS 优先：systemd 用户服务**（开机自启、随登录拉起、崩溃自动重启——`nohup` 起的进程重启电脑后会丢失，导致 ZCode 提示"重新连接中"）：
 
 ```bash
 HR=$(command -v headroom || echo "$HOME/.local/bin/headroom")
@@ -50,7 +59,8 @@ systemctl --user daemon-reload && systemctl --user enable --now headroom-proxy
 systemd 不可用（无 systemd 用户会话）时退回插件脚本（自动带上 CPU/省电配置与电源监视器）：
 
 ```bash
-sh <插件目录>/hooks/ensure-proxy.sh start    # 找不到脚本时退回：
+<插件目录>/hooks/runtime.cmd <插件目录>/hooks/ensure-proxy.mjs start    # 旧版插件只有 .sh 时改用 sh …/ensure-proxy.sh start
+# 都找不到脚本时退回：
 ANTHROPIC_TARGET_API_URL=https://open.bigmodel.cn/api/anthropic \
 nohup headroom proxy --port 8787 >> ~/.zcode-headroom-proxy.log 2>&1 &
 ```

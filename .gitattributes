@@ -1,0 +1,2 @@
+# runtime.cmd 是 sh/batch 双语脚本：batch 段实测依赖 CRLF 行尾，禁止 git 行尾转换
+plugins/**/hooks/runtime.cmd -text

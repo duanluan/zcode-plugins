@@ -49,3 +49,7 @@ headroom 压缩模型默认自动选最快设备（CUDA/MPS 显卡优先，回�
 ### 🔄 自动启动
 
 长期使用建议配置 **systemd 用户服务**（开机自启、崩溃自动重启，`/hr-setup` 第 2 步含完整 unit 内容）——`nohup` 启动的代理重启电脑后会丢失，导致 ZCode 提示"重新连接中"。插件另带兜底：每次会话启动时检测 8787 端口，代理没跑就后台启动（端口探测用 `/livez`）。环境变量可覆盖：`HEADROOM_PROXY_PORT`、`HEADROOM_PROXY_AUTOSTART=0`（关闭）、`HEADROOM_UPSTREAM_ANTHROPIC`（上游地址）、`HEADROOM_KOMPRESS_BACKEND` / `HEADROOM_POWER_SAVE_CPU`（见上节，仅当前进程生效）。
+
+### 🪟 Windows
+
+1.2.0 起原生支持 Windows，无需 sh/Git Bash，钩子也**无需预装 Node.js**：经 `hooks/runtime.cmd` 跨平台启动器拉起，自动找可用运行时——PATH 里的 node → 常见安装位置（nvm/volta/conda/scoop 等）→ ZCode 自带运行时（ELECTRON_RUN_AS_NODE，桌面版自带、零依赖）。MCP 取回工具（`headroom mcp serve`）需 PATH 里有 node：缺失时该工具自动缺席，代理与压缩本体不受影响。Windows 侧的代理生命周期（detached 启动、taskkill 树杀 + 按端口兜底）、状态输出、电源监视器（`power-watch.mjs`）均为 node 原生实现，Linux/macOS 上入口内部仍委托原 `ensure-proxy.sh`，行为不变。headroom 本体装法：zcode-pro 面板一键安装（pip 通道），或手动 `py -m pip install "headroom-ai[all]"`；无 systemd，开机自启依赖会话启动钩子兜底（或自行设计划任务）。

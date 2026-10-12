@@ -1,5 +1,5 @@
 {
-  "description": "会话启动时确保 Headroom 压缩代理在运行：已监听则跳过，未装 headroom 则静默跳过，否则后台拉起（上游默认 GLM open.bigmodel.cn）；省电自动切换开启时同时拉起电源监视器。环境变量可覆盖：HEADROOM_PROXY_PORT / HEADROOM_PROXY_AUTOSTART=0 / HEADROOM_UPSTREAM_ANTHROPIC / HEADROOM_UPSTREAM_OPENAI / HEADROOM_KOMPRESS_BACKEND / HEADROOM_POWER_SAVE_CPU=battery|saver|off（持久配置走 ~/.zcode/headroom.json）。",
+  "description": "会话启动时确保 Headroom 压缩代理在运行：已监听则跳过，未装 headroom 则静默跳过，否则后台拉起（上游默认 GLM open.bigmodel.cn）；省电自动切换开启时同时拉起电源监视器。跨平台双入口（每个平台恰好一个可用，另一个无害失败）：/bin/sh 跑 runtime.cmd 兼容 POSIX（无需预装 node：找 PATH→nvm/常见位置→ZCode 自带运行时）；runtime.cmd 直指走 Windows cmd。环境变量可覆盖：HEADROOM_PROXY_PORT / HEADROOM_PROXY_AUTOSTART=0 / HEADROOM_UPSTREAM_ANTHROPIC / HEADROOM_UPSTREAM_OPENAI / HEADROOM_KOMPRESS_BACKEND / HEADROOM_POWER_SAVE_CPU=battery|saver|off（持久配置走 ~/.zcode/headroom.json）。",
   "hooks": {
     "SessionStart": [
       {
@@ -8,8 +8,15 @@
           {
             "type": "process",
             "command": "/bin/sh",
-            "args": ["${ZCODE_PLUGIN_ROOT}/hooks/ensure-proxy.sh"],
-            "timeoutMs": 5000,
+            "args": ["${ZCODE_PLUGIN_ROOT}/hooks/runtime.cmd", "${ZCODE_PLUGIN_ROOT}/hooks/ensure-proxy.mjs"],
+            "timeoutMs": 8000,
+            "statusMessage": "Headroom: 检查压缩代理…"
+          },
+          {
+            "type": "process",
+            "command": "${ZCODE_PLUGIN_ROOT}/hooks/runtime.cmd",
+            "args": ["${ZCODE_PLUGIN_ROOT}/hooks/ensure-proxy.mjs"],
+            "timeoutMs": 8000,
             "statusMessage": "Headroom: 检查压缩代理…"
           }
         ]
