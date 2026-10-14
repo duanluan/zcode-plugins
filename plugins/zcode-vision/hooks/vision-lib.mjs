@@ -462,14 +462,20 @@ export function resolveChainProxies(cfg, sessionId) {
       if (!proxy.useProvider) return { ...proxy };
       try {
         // 代理条目的 format（下拉框）作为兜底传入：供应商缺 api.type 时用它判断请求格式；
-        // model 优先用映射表给的首选视觉模型，未命中用代理条目自己的 model
+        // model 为空且跟随会话 = 用会话当前模型（zcode-pro 面板的「跟随当前会话
+        // 当前模型」选项；会话当前模型恰好属于跟随到的这个供应商，索引查不到
+        // 时退回首选视觉模型）；否则优先映射表的首选视觉模型，未命中用代理
+        // 条目自己的 model
         const r = resolveProviderRef(proxy.useProvider, sessionId, proxy.format);
+        const followSessionModel = !String(proxy.model || '').trim() && proxy.useProvider === 'session';
         return {
           ...proxy,
           baseUrl: r.baseUrl,
           apiKey: r.apiKey,
           format: r.format,
-          model: r.preferredModel || proxy.model,
+          model: followSessionModel
+            ? (sessionModelId(sessionId) || r.preferredModel || proxy.model)
+            : (r.preferredModel || proxy.model),
           __provider: r.providerName,
         };
       } catch (e) {
