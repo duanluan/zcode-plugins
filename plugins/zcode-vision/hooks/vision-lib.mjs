@@ -1,8 +1,8 @@
 // zcode-vision 共享库：配置、供应商解析、视觉调用、链执行、缓存。
 // 使用方：hooks/vision-hook.mjs（UserPromptSubmit 钩子与 --test）、hooks/vision-mcp.mjs（vision_ask 追问工具）。
-// 修改此处需同时跑回归：node plugins/zcode-vision/test/run.mjs。
+// 修改此处需同时跑回归：node ui-plugins/zcode-vision/test/run.mjs。
 
-import { createHash } from 'node:crypto';
+import { createDecipheriv, createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -17,31 +17,24 @@ export const IMAGE_CACHE_ROOT = path.join(HOME, '.zcode', 'cli', 'image-cache');
 
 export const DEFAULT_PROMPT =
   '请详细描述这张图片的全部内容。若是界面或图表截图，请先把所有错误、警告、异常状态逐字引用出来（含完整原文），再描述整体布局、文字与关键数据。';
-// 默认两级（chainMode: fallback，依次尝试到成功）：glm-session 跟随当前会话所用供应商
-// （识别模型优先用 PREFERRED_VISION_MODELS 映射表）→ glm-flash 用 GLM 订阅（coding plan）
-// 的 Anthropic 兼容端点直连兜底，无需标准 API 余额。
-// 赠送额度级 trust-build 暂不进默认：ZCode 网关不放行无人值守调用（ADR-0002）；
-// 想试可手动加回（useProvider: 'builtin:bigmodel-start-plan'，配 timeoutMs 短超时快速降级）。
+// 默认单级（chainMode: fallback）：session 跟随当前会话所用供应商，模型留空 =
+// 会话当前模型（glm-5.3 在 coding-plan 端点实测可看图，跟随会话模型开箱即用）。
+// 需要兜底级可手动加 glm-flash（GLM 订阅 Anthropic 兼容端点直连，key 留空自动
+// 找 config.json，找不到再按登录账号换取项目 token）。
+// 赠送额度级 trust-build 暂不进默认：ZCode 网关不放行无人值守调用（ADR-0002）。
 // format: "anthropic"=Anthropic Messages；"openai"=OpenAI Chat Completions。
 export const DEFAULT_CONFIG = {
   enabled: true,
   chainMode: 'fallback', // fallback=依次尝试到成功为止；pipeline=逐级加工（描述→校对→提炼）
-  chain: ['glm-session', 'glm-flash'],
+  chain: ['session'],
   proxies: [
     {
       // 跟随当前会话所用供应商（任务索引反查 providerId；无会话上下文时取最近会话）。
-      // baseUrl/apiKey/format 由该供应商配置自动填充；model 优先用映射表，未命中用本字段
-      name: 'glm-session',
+      // baseUrl/apiKey/format 由该供应商配置自动填充；model 留空 = 会话当前模型
+      //（zcode-pro 面板的“跟随当前会话当前模型”选项；索引查不到时退回首选视觉模型）
+      name: 'session',
       useProvider: 'session',
-      model: 'glm-5.3-flash',
-      prompt: DEFAULT_PROMPT,
-    },
-    {
-      name: 'glm-flash',
-      baseUrl: 'https://open.bigmodel.cn/api/anthropic',
-      model: 'glm-5.3-flash',
-      apiKey: '', // 留空依次尝试：环境变量 GLM_API_KEY → ~/.zcode/v2/config.json 里 bigmodel 供应商的 key
-      format: 'anthropic',
+      model: '',
       prompt: DEFAULT_PROMPT,
     },
   ],
@@ -50,7 +43,7 @@ export const DEFAULT_CONFIG = {
   // 60 秒会把慢的那次掐掉导致降级，故默认放宽到 120 秒（钩子总预算 165 秒内兜得住）
   apiTimeoutMs: 120000,
   compressThresholdKB: 1024, // 超过该大小的图先压缩再识别（最长边固定 2000、JPEG85）；0 = 不压缩
-  skipAfterFailures: 4, // 连续失败多少次后暂时跳过该代理；0 = 不跳过
+  skipAfterFailures: 2, // 连续失败多少次后暂时跳过该代理；0 = 不跳过
   skipMinutes: 30, // 跳过多久后重试；期间任一次成功即清零计数
   // 就算主模型自己能看图（如 mimo-v2.6-pro）也拦截识别并注入描述；false = 主模型能看图就不触发。
   // 主模型是 flash 小模型时无论如何不触发（识别就是它自己，注入描述纯属重复）
@@ -83,13 +76,28 @@ export function atomicWrite(file, text) {
   fs.renameSync(tmp, file);
 }
 
-// 历史默认模板（只用于识别「从未自定义过」的旧配置并自动升级）：
-// v1 = 单代理 glm-flash 直连（升级为现行默认两级）。v2 两级默认（glm-session → glm-flash）
-// 与现行默认一致、无需升级，故不在表内——放进去会让每次加载都触发一次无意义的写盘。
+// 历史默认模板（只用于识别「从未自定义过」的旧配置并自动升级为新默认）。
+// 注意：每换一版默认，旧默认要进这张表（内容原样），未自定义的用户才能自动跟上。
 const LEGACY_DEFAULTS = [
   {
+    // v1：单代理 glm-flash 直连
     chain: ['glm-flash'],
     proxies: [
+      {
+        name: 'glm-flash',
+        baseUrl: 'https://open.bigmodel.cn/api/anthropic',
+        model: 'glm-5.3-flash',
+        apiKey: '',
+        format: 'anthropic',
+        prompt: DEFAULT_PROMPT,
+      },
+    ],
+  },
+  {
+    // v2：两级 glm-session → glm-flash（未自定义过时自动升级为现行单级 session）
+    chain: ['glm-session', 'glm-flash'],
+    proxies: [
+      { name: 'glm-session', useProvider: 'session', model: 'glm-5.3-flash', prompt: DEFAULT_PROMPT },
       {
         name: 'glm-flash',
         baseUrl: 'https://open.bigmodel.cn/api/anthropic',
@@ -116,7 +124,7 @@ function deepEqualUnordered(a, b) {
 export function loadConfig() {
   const onDisk = readJson(CONFIG_PATH);
   if (!onDisk) {
-    // 首跑生成模板（含默认两级链），用户可用 /vision-setup 或 zcode-pro 面板修改
+    // 首跑生成模板（单级 session：跟随会话与其当前模型），用户可用 /vision-setup 或 zcode-pro 面板修改
     try {
       fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
       atomicWrite(CONFIG_PATH, `${JSON.stringify(DEFAULT_CONFIG, null, 2)}\n`);
@@ -134,7 +142,7 @@ export function loadConfig() {
     const upgraded = { ...DEFAULT_CONFIG, ...onDisk, chain: DEFAULT_CONFIG.chain, proxies: DEFAULT_CONFIG.proxies };
     try {
       atomicWrite(CONFIG_PATH, `${JSON.stringify(upgraded, null, 2)}\n`);
-      log('配置为未自定义的旧默认模板，已自动升级为默认两级链：glm-session → glm-flash');
+      log('配置为未自定义的旧默认模板，已自动升级为默认单级链：session（跟随会话与其当前模型）');
     } catch (e) {
       log(`升级旧默认配置失败：${e.message}`);
     }
@@ -145,7 +153,9 @@ export function loadConfig() {
 }
 
 // API key 解析：代理显式值 → 环境变量 → ~/.zcode/v2/config.json 的 bigmodel 供应商 key
-function resolveApiKey(proxy) {
+// 直连代理的 API key 兜底链：条目自填 → 环境变量 → config.json 里 bigmodel 供应商
+// 的 key →（异步）BigModel 登录账号换取项目 token（只登录未配置的机器前三级全空）
+async function resolveApiKey(proxy) {
   if (proxy.apiKey && proxy.apiKey.trim()) return proxy.apiKey.trim();
   for (const env of ['GLM_API_KEY', 'ZAI_API_KEY', 'VISION_API_KEY']) {
     const v = process.env[env];
@@ -166,6 +176,12 @@ function resolveApiKey(proxy) {
     }
   } catch {
     /* 尽力而为 */
+  }
+  try {
+    const m = await exchangeAccountProjectToken('bigmodel');
+    return m.token;
+  } catch {
+    /* 未登录/网络失败：按无 key 报错 */
   }
   return '';
 }
@@ -204,7 +220,7 @@ function timeoutOf(proxy, cfg) {
 
 // 单次视觉调用。cfg 提供超时（apiTimeoutMs）；追问场景 prompt 由调用方给。
 export async function callProxy(proxy, { imageB64, mime, text }, cfg) {
-  const apiKey = resolveApiKey(proxy);
+  const apiKey = await resolveApiKey(proxy);
   if (!apiKey) throw new Error('无可用 API key（可在配置或 /vision-setup 里设置）');
   const prompt = text || proxy.prompt || DEFAULT_PROMPT;
   const anthropic = (proxy.format || 'openai') === 'anthropic';
@@ -413,15 +429,146 @@ export function preferredModelOf(hit) {
   return list.find((x) => String(x).toLowerCase() === rule.model.toLowerCase()) || null;
 }
 
+// —— 登录账号供应商（Coding Plan）直连凭据的换取 ——
+// 会话跑在登录账号供应商上（任务索引 providerId 形如 account:bigmodel-
+// individual-coding-plan）而本机没有 v2/config.json 密钥表（只用账号登录、从未
+// 保存过供应商配置的机器不生成该文件）时，按官方桌面同款流程换取项目 token
+// 直连：解密 credentials.json 的 OAuth 令牌 → 定位个人项目 → 签发 access_token。
+// 加密格式与三步协议均对齐官方实现（credential-cipher.ts / project-access-token-client.ts）
+const ACCOUNT_FAMILY_BASE = {
+  bigmodel: { manageOrigin: 'https://bigmodel.cn', apiBase: 'https://open.bigmodel.cn/api/anthropic', name: 'BigModel（登录账号）' },
+  zai: { manageOrigin: 'https://api.z.ai', apiBase: 'https://api.z.ai/api/anthropic', name: 'Z.ai（登录账号）' },
+};
+const accountTokenCache = new Map(); // family → { token, expiresAt }
+
+// 供应商 id 匹配归一化：剥 account:/builtin: 前缀、抹掉 individual/team 差异
+//（会话索引记 account:bigmodel-individual-coding-plan，供应商表叫 builtin:bigmodel-coding-plan）
+export function normalizeProviderIdForMatch(id) {
+  return String(id || '')
+    .replace(/^(account|builtin):/, '')
+    .replace(/-(individual|team)-/, '-');
+}
+
+// 解密 credentials.json 的 enc:v1: 值（AES-256-GCM；密钥推导与官方一致：
+// ZCODE_CREDENTIAL_SECRET 环境变量优先，否则 sha256("zcode-credential-fallback:
+// 平台:主目录:用户名")）。非加密值原样返回；失败返回空串
+export function decryptCredentialValue(value) {
+  const s = String(value || '');
+  if (!s.startsWith('enc:v1:')) return s;
+  const [ivRaw, tagRaw, ctRaw] = s.slice('enc:v1:'.length).split('.');
+  if (!ivRaw || !tagRaw || !ctRaw) return '';
+  try {
+    const secret = (process.env.ZCODE_CREDENTIAL_SECRET || '').trim()
+      || `zcode-credential-fallback:${process.platform}:${HOME}:${os.userInfo().username}`;
+    const key = createHash('sha256').update(secret).digest();
+    const d = createDecipheriv('aes-256-gcm', key, Buffer.from(ivRaw, 'base64url'));
+    d.setAuthTag(Buffer.from(tagRaw, 'base64url'));
+    return Buffer.concat([d.update(Buffer.from(ctRaw, 'base64url')), d.final()]).toString('utf8');
+  } catch { return ''; }
+}
+
+// 换取登录账号的项目 token；成功返回 { token, apiBase, expiresAt }
+export async function exchangeAccountProjectToken(family) {
+  const conf = ACCOUNT_FAMILY_BASE[family];
+  if (!conf) throw new Error(`不支持的供应商族 ${family}`);
+  const cached = accountTokenCache.get(family);
+  if (cached && Date.now() < cached.expiresAt - 5 * 60 * 1000) {
+    return { token: cached.token, apiBase: conf.apiBase, expiresAt: cached.expiresAt };
+  }
+  const creds = readJson(path.join(HOME, '.zcode', 'v2', 'credentials.json'));
+  const loginToken = (creds && typeof creds === 'object')
+    ? decryptCredentialValue(creds[`oauth:${family}:access_token`]) : '';
+  if (!loginToken) throw new Error(`credentials.json 里没有可解的 ${family} 登录令牌（未登录或已过期）`);
+
+  // BIGMODEL_API_BASE_URL：官方同款测试环境覆盖，顺带让协议可注入测试
+  const origin = (family === 'bigmodel' && (process.env.BIGMODEL_API_BASE_URL || '').trim())
+    || conf.manageOrigin;
+  // 管理接口沿用旧鉴权格式（bigmodel 原始 token / zai Bearer）；签发接口两家都用 Bearer
+  const manageHeaders = {
+    'content-type': 'application/json',
+    authorization: family === 'zai' ? `Bearer ${loginToken}` : loginToken,
+  };
+  const api = async (p, init = {}) => {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 20000);
+    try {
+      const resp = await fetch(origin + p, { ...init, signal: ctrl.signal, headers: manageHeaders });
+      const doc = await resp.json().catch(() => null);
+      const data = (doc && [200, 0, '200', '0'].includes(doc.code)) ? doc.data : null;
+      if (data === null) throw new Error(`接口 ${p} 返回异常（${resp.status}）`);
+      return data;
+    } finally { clearTimeout(timer); }
+  };
+
+  // ① 客户信息 → ② 定位个人项目（projectType "2" 是团队项目，个人密钥不能挂在团队下）
+  const cust = await api('/api/biz/customer/getCustomerInfo');
+  const orgs = (Array.isArray(cust?.organizations) ? cust.organizations : [])
+    .map((o) => ({ id: String(o?.organizationId || '').trim(), name: String(o?.organizationName || ''),
+      projects: (Array.isArray(o?.projects) ? o.projects : [])
+        .filter((p) => String(p?.projectType ?? '').trim() !== '2' && String(p?.projectId || '').trim()) }));
+  const org = orgs.find((o) => o.id && o.projects.length && o.name.includes('默认机构')) || orgs.find((o) => o.id && o.projects.length);
+  const project = org && (org.projects.find((p) => String(p?.projectName || '').includes('默认项目')) || org.projects[0]);
+  if (!org || !project) throw new Error('账号下没有可用的个人项目（未订阅 Coding Plan？）');
+
+  // ③ 找官方建的 zcode-api-key，没有就建一个
+  const keysUrl = `/api/biz/v1/organization/${encodeURIComponent(org.id)}/projects/${encodeURIComponent(project.projectId)}/api_keys`;
+  const keys = await api(keysUrl);
+  const keyEntry = (Array.isArray(keys) ? keys : []).find((k) => k && typeof k === 'object' && k.name === 'zcode-api-key')
+    || await api(keysUrl, { method: 'POST', body: JSON.stringify({ name: 'zcode-api-key', usageScene: 1 }) });
+  const apiKeyId = keyEntry && String(keyEntry.apiKey || '').trim();
+  if (!apiKeyId) throw new Error('未能定位 Coding Plan 的 API Key');
+
+  // ④ 签发项目 token（此接口用 Bearer 鉴权；enable 字段缺失视为开启——旧版接口
+  //    回的是同义 enabled，与官方 preprocess 语义一致）
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 20000);
+  let issueResp;
+  try {
+    issueResp = await fetch(`${origin}${keysUrl}/${encodeURIComponent(apiKeyId)}/access_tokens`, {
+      method: 'POST',
+      signal: ctrl.signal,
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${loginToken}` },
+      body: JSON.stringify({ clientType: 'zcode', clientVersion: 'zcode-vision' }),
+    });
+  } finally { clearTimeout(timer); }
+  const issue = await issueResp.json().catch(() => null);
+  const issueData = (issue && [200, 0, '200', '0'].includes(issue.code)) ? issue.data : null;
+  if (!issueData) throw new Error(`签发项目 token 失败（${issueResp.status}）`);
+  if (issueData.enable === false || !issueData.accessToken) throw new Error('项目 token 未开启（enable=false）');
+  accountTokenCache.set(family, { token: issueData.accessToken, expiresAt: Number(issueData.expiresAt) || 0 });
+  return { token: issueData.accessToken, apiBase: conf.apiBase, expiresAt: Number(issueData.expiresAt) || 0 };
+}
+
 // 把 useProvider 引用解析为该供应商的 baseUrl/apiKey/格式；解析失败抛错（带原因）。
 // fallbackFormat 传代理条目下拉框选的格式，仅在供应商缺 api.type 时使用。
-export function resolveProviderRef(ref, sessionId, fallbackFormat) {
+// （异步：登录账号供应商需要联网换取项目 token）
+export async function resolveProviderRef(ref, sessionId, fallbackFormat) {
   const providers = providerTables();
   const label = (p) => `${p.name}（${p.id}）`;
   let hit = null;
+  let accountFamily = ''; // 命中登录账号换取时非空
   if (ref === 'session') {
     const id = sessionProviderId(sessionId);
     hit = id ? providers.find((p) => p.id === id) : null;
+    if (!hit && id) {
+      // 归一化匹配：account:bigmodel-individual-coding-plan ≡ builtin:bigmodel-coding-plan
+      const norm = normalizeProviderIdForMatch(id);
+      hit = providers.find((p) => normalizeProviderIdForMatch(p.id) === norm) || null;
+    }
+    if (!hit && id && id.startsWith('account:')) {
+      // 只登录未配置的机器：表里没有可直连的密钥，按官方流程换取项目 token
+      if (/start-plan/.test(id)) {
+        throw new Error('会话用的是 Start Plan 登录供应商，视觉代理暂不支持自动直连：请在配置里改选供应商或自填地址');
+      }
+      accountFamily = id.includes(':zai') ? 'zai' : 'bigmodel';
+      try {
+        const m = await exchangeAccountProjectToken(accountFamily);
+        hit = { id, name: ACCOUNT_FAMILY_BASE[accountFamily].name, aliases: [], kind: 'anthropic',
+          baseURL: m.apiBase, apiKey: m.token, models: ['GLM-5.3', 'GLM-5.3-Flash'] };
+      } catch (err) {
+        throw new Error(`登录账号供应商取直连密钥失败（${err?.message || err}）：请重新登录 ZCode 或改选供应商`);
+      }
+    }
     if (!hit) {
       const names = providers.map(label).join('、');
       throw new Error(`未能定位会话所用的供应商（任务索引无记录或供应商不存在；无会话上下文时取最近会话）；可用供应商：${names || '无'}`);
@@ -450,13 +597,16 @@ export function resolveProviderRef(ref, sessionId, fallbackFormat) {
     providerName: hit.name,
     providerId: hit.id,
     preferredModel: preferredModelOf(hit),
+    providerModels: hit.models || [], // 供应商的模型列表：判断自定义模型是否属于它
+    account: accountFamily || undefined, // 登录账号换取的连接：模型名需按官方目录规整大写
   };
 }
 
-// 展开代理链：useProvider 解析成实际 baseUrl/apiKey/format；解析失败记入 __resolveError（调用时报给用户）
-export function resolveChainProxies(cfg, sessionId) {
-  return (cfg.chain || [])
-    .map((name) => {
+// 展开代理链：useProvider 解析成实际 baseUrl/apiKey/format；解析失败记入 __resolveError（调用时报给用户）。
+// （异步：登录账号供应商需要联网换取项目 token，见 resolveProviderRef）
+export async function resolveChainProxies(cfg, sessionId) {
+  return Promise.all((cfg.chain || [])
+    .map(async (name) => {
       const proxy = (cfg.proxies || []).find((p) => p.name === name);
       if (!proxy) return { name, __missing: true };
       if (!proxy.useProvider) return { ...proxy };
@@ -466,22 +616,34 @@ export function resolveChainProxies(cfg, sessionId) {
         // 当前模型」选项；会话当前模型恰好属于跟随到的这个供应商，索引查不到
         // 时退回首选视觉模型）；否则优先映射表的首选视觉模型，未命中用代理
         // 条目自己的 model
-        const r = resolveProviderRef(proxy.useProvider, sessionId, proxy.format);
+        const r = await resolveProviderRef(proxy.useProvider, sessionId, proxy.format);
         const followSessionModel = !String(proxy.model || '').trim() && proxy.useProvider === 'session';
+        // 模型选取：模型留空且跟随会话 = 用会话当前模型；自定义模型属于跟随到的
+        // 供应商时优先用自定义（否则被首选视觉模型映射表抢占，用户改选不生效）；
+        // 不属于时用映射表的首选视觉模型（跨供应商修正，如自定义残留 glm 名而
+        // 跟到了小米），映射未命中用自定义原样（由端点报模型不存在）
+        const customModel = String(proxy.model || '').trim();
+        const customOnProvider = customModel
+          && (r.providerModels || []).some((m) => String(m).toLowerCase() === customModel.toLowerCase());
+        let model = followSessionModel
+          ? (sessionModelId(sessionId) || r.preferredModel || proxy.model)
+          : (customOnProvider ? customModel : (r.preferredModel || proxy.model));
+        // 登录账号换来的连接走官方目录，模型名是大写 GLM- 前缀（会话索引里可能记小写）
+        if (r.account && typeof model === 'string' && /^glm-\d/i.test(model)) {
+          model = model.replace(/^glm/i, 'GLM');
+        }
         return {
           ...proxy,
           baseUrl: r.baseUrl,
           apiKey: r.apiKey,
           format: r.format,
-          model: followSessionModel
-            ? (sessionModelId(sessionId) || r.preferredModel || proxy.model)
-            : (r.preferredModel || proxy.model),
+          model,
           __provider: r.providerName,
         };
       } catch (e) {
         return { ...proxy, __resolveError: e.message };
       }
-    });
+    }));
 }
 
 export function chainFingerprint(chainProxies) {
@@ -625,7 +787,7 @@ export function compressThresholdBytesOf(cfg) {
 
 export async function askImage(cfg, imageFile, question) {
   const { buf, mime } = await prepareImage(imageFile, compressThresholdBytesOf(cfg));
-  const chainProxies = resolveChainProxies(cfg, null);
+  const chainProxies = await resolveChainProxies(cfg, null);
   const usable = chainProxies.filter((p) => !p.__missing && !p.__resolveError);
   if (!usable.length) {
     throw new Error(`链中无可用代理：${chainProxies.map((p) => p.__resolveError || `${p.name} 未定义`).join('；')}`);

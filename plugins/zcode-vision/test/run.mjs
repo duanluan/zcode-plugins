@@ -1,4 +1,4 @@
-// zcode-vision 回归测试：node plugins/zcode-vision/test/run.mjs
+// zcode-vision 回归测试：node ui-plugins/zcode-vision/test/run.mjs
 // 覆盖：格式兜底、首选视觉模型映射、连续失败跳过、主模型感知（flash 跳过/forceIntercept）、
 // 默认模板与旧配置升级、真实配置解析。
 // 涉及读盘的测试用假 HOME 起子进程（inFakeHome），不碰真实的 ~/.zcode 配置。
@@ -17,9 +17,18 @@ const require_ = createRequire(import.meta.url);
 
 let passed = 0;
 let failed = 0;
+const asyncTests = [];
 function t(name, fn) {
   try {
-    fn();
+    const r = fn();
+    if (r && typeof r.then === 'function') {
+      // 异步用例：登记，末尾统一等待后判定
+      asyncTests.push(r.then(
+        () => { passed += 1; console.log(`✓ ${name}`); },
+        (e) => { failed += 1; console.log(`✗ ${name}\n  ${e.message}`); },
+      ));
+      return;
+    }
     passed += 1;
     console.log(`✓ ${name}`);
   } catch (e) {
@@ -88,9 +97,9 @@ t('格式兜底：缺 api.type 且普通地址 → openai', () => {
 t('格式兜底：缺 api.type 时用代理条目 format 下拉值兜底', () => {
   const { result } = inFakeHome(writeProvider('p1', { baseURL: 'https://x.example/v1' }), `
     return {
-      a: lib.resolveProviderRef('p1', null, 'anthropic').format,
-      b: lib.resolveProviderRef('p1', null, 'anthropic-messages').format,
-      c: lib.resolveProviderRef('p1', null, 'openai').format,
+      a: (await lib.resolveProviderRef('p1', null, 'anthropic')).format,
+      b: (await lib.resolveProviderRef('p1', null, 'anthropic-messages')).format,
+      c: (await lib.resolveProviderRef('p1', null, 'openai')).format,
     };`);
   assert.deepEqual(result, { a: 'anthropic', b: 'anthropic', c: 'openai' });
 });
@@ -103,7 +112,7 @@ t('格式兜底：api.type=anthropic-messages → anthropic', () => {
 
 t('格式兜底：openai-responses 格式明确报「暂不支持」', () => {
   const { result } = inFakeHome(writeProvider('p1', { kind: 'openai-responses' }), `
-    try { lib.resolveProviderRef('p1', null); return 'no-throw'; } catch (e) { return e.message; }`);
+    try { await lib.resolveProviderRef('p1', null); return 'no-throw'; } catch (e) { return e.message; }`);
   assert.match(result, /暂不支持/);
 });
 
@@ -125,10 +134,76 @@ t('格式兜底：缺 baseURL / 缺 API key 分别报明确错误', () => {
       }),
     );
   }, `
-    const grab = (id) => { try { lib.resolveProviderRef(id, null); return 'no-throw'; } catch (e) { return e.message; } };
-    return { a: grab('p-noUrl'), b: grab('p-noKey') };`);
+    const grab = async (id) => { try { await lib.resolveProviderRef(id, null); return 'no-throw'; } catch (e) { return e.message; } };
+    return { a: await grab('p-noUrl'), b: await grab('p-noKey') };
+`);
   assert.match(result.a, /未配置 baseURL/);
   assert.match(result.b, /未配置 API key/);
+});
+
+// —— 登录账号供应商：id 归一化 + 凭据解密 ——
+
+t('归一化：account:individual/team ≡ builtin:coding-plan', () => {
+  const n = lib.normalizeProviderIdForMatch;
+  assert.equal(n('account:bigmodel-individual-coding-plan'), n('builtin:bigmodel-coding-plan'));
+  assert.equal(n('account:bigmodel-team-coding-plan'), n('builtin:bigmodel-coding-plan'));
+  assert.equal(n('account:bigmodel-start-plan'), n('builtin:bigmodel-start-plan'));
+  assert.equal(n('95e62afc-0000'), '95e62afc-0000'); // 普通供应商 id 不动
+});
+
+t('解密：官方 enc:v1 格式往返；坏值返回空串', () => {
+  const { createCipheriv, randomBytes } = require_('node:crypto');
+  const secret = `zcode-credential-fallback:${process.platform}:${os.homedir()}:${os.userInfo().username}`;
+  const key = require_('node:crypto').createHash('sha256').update(secret).digest();
+  const enc = (v) => {
+    const iv = randomBytes(12);
+    const c = createCipheriv('aes-256-gcm', key, iv);
+    const ct = Buffer.concat([c.update(v, 'utf8'), c.final()]);
+    return 'enc:v1:' + [iv, c.getAuthTag(), ct].map((b) => b.toString('base64url')).join('.');
+  };
+  assert.equal(lib.decryptCredentialValue(enc('token-abc')), 'token-abc');
+  assert.equal(lib.decryptCredentialValue('plain'), 'plain');
+  assert.equal(lib.decryptCredentialValue('enc:v1:garbage'), '');
+  assert.equal(lib.decryptCredentialValue(''), '');
+});
+
+// —— 跟随会话时的模型优先级：自定义模型属于跟随到的供应商时优先于映射表 ——
+
+// 假 HOME 里造一张任务索引（含最近会话的 providerId/modelId），子进程解析链
+function withFakeTasksIndex(providerId, modelId, proxyModel, expect, name) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vision-prio-'));
+  fs.mkdirSync(path.join(dir, '.zcode', 'v2'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.zcode', 'v2', 'config.json'), JSON.stringify({
+    provider: { 'builtin:bigmodel-coding-plan': { name: 'BigModel', kind: 'anthropic',
+      options: { baseURL: 'https://x.example/api/anthropic', apiKey: 'sk-test' },
+      models: { 'glm-5.3-flash': {}, 'GLM-5.3': {} } } },
+  }));
+  const dbPath = path.join(dir, '.zcode', 'v2', 'tasks-index.sqlite');
+  const { DatabaseSync } = require_('node:sqlite');
+  const db = new DatabaseSync(dbPath);
+  db.exec('CREATE TABLE tasks (task_id TEXT, model TEXT, deleted INTEGER DEFAULT 0, updated_at INTEGER)');
+  db.prepare('INSERT INTO tasks (task_id, model, updated_at) VALUES (?, ?, 1)').run('sess_t1', providerId + '/' + modelId);
+  db.close();
+  const script = `
+import * as lib from ${JSON.stringify(LIB)};
+const cfg = { chain: ['p'], proxies: [{ name: 'p', useProvider: 'session', model: ${JSON.stringify(proxyModel)} }] };
+const r = await lib.resolveChainProxies(cfg, null);
+console.log(JSON.stringify({ model: r[0].model, err: r[0].__resolveError }));
+`;
+  const out = execFileSync(process.execPath, ['--no-warnings', '--input-type=module', '-e', script], {
+    env: { ...process.env, HOME: dir }, encoding: 'utf8', timeout: 30000,
+  });
+  const res = JSON.parse(out.trim().split('\n').pop());
+  assert.equal(res.err, undefined, name + ' 解析失败: ' + res.err);
+  assert.equal(res.model, expect, name);
+}
+
+t('跟随会话 + 自定义模型属于该供应商 → 用自定义（不被映射表抢占）', () => {
+  withFakeTasksIndex('builtin:bigmodel-coding-plan', 'glm-5.3', 'GLM-5.3', 'GLM-5.3', '自定义优先');
+});
+
+t('跟随会话 + 自定义模型不属于该供应商 → 映射表首选（跨供应商修正）', () => {
+  withFakeTasksIndex('builtin:bigmodel-coding-plan', 'glm-5.3', 'mimo-v2.6-flash', 'glm-5.3-flash', '映射表修正');
 });
 
 // —— 首选视觉模型映射表（ADR-0001） ——
@@ -163,11 +238,11 @@ t('映射表：未命中或列表不含该模型 → null（回退代理条目 m
 
 // —— 连续失败跳过（ADR-0002） ——
 
-t('跳过阈值：默认 4 次 / 30 分钟；显式 0 = 不跳过；非法回落默认', () => {
-  assert.deepEqual(lib.skipThresholdsOf({}), { count: 4, minutes: 30 });
+t('跳过阈值：默认 2 次 / 30 分钟；显式 0 = 不跳过；非法回落默认', () => {
+  assert.deepEqual(lib.skipThresholdsOf({}), { count: 2, minutes: 30 });
   assert.deepEqual(lib.skipThresholdsOf({ skipAfterFailures: 2, skipMinutes: 5 }), { count: 2, minutes: 5 });
   assert.deepEqual(lib.skipThresholdsOf({ skipAfterFailures: 0, skipMinutes: -1 }), { count: 0, minutes: 30 });
-  assert.deepEqual(lib.skipThresholdsOf({ skipAfterFailures: 'x' }), { count: 4, minutes: 30 });
+  assert.deepEqual(lib.skipThresholdsOf({ skipAfterFailures: 'x' }), { count: 2, minutes: 30 });
   assert.equal(lib.compressThresholdBytesOf({}), 1024 * 1024);
   assert.equal(lib.compressThresholdBytesOf({ compressThresholdKB: 0 }), 0);
   assert.equal(lib.compressThresholdBytesOf({ compressThresholdKB: 'x' }), 1024 * 1024);
@@ -267,25 +342,31 @@ const legacyV2 = () => ({
   ],
 });
 
-t('默认模板：无配置文件时生成默认两级链并写盘', () => {
+t('默认模板：无配置文件时生成默认单级 session 并写盘', () => {
   const { result, dir } = inFakeHome(null, `return lib.loadConfig();`);
-  assert.deepEqual(result.chain, ['glm-session', 'glm-flash']);
+  assert.deepEqual(result.chain, ['session']);
+  assert.equal(result.proxies.length, 1);
+  assert.equal(result.proxies[0].useProvider, 'session');
+  assert.equal(result.proxies[0].model, ''); // 留空 = 会话当前模型
   const written = JSON.parse(fs.readFileSync(path.join(dir, '.zcode', 'zcode-vision.json'), 'utf8'));
-  assert.equal(written.proxies.length, 2);
-  assert.equal(written.skipAfterFailures, 4);
+  assert.equal(written.proxies.length, 1);
+  assert.equal(written.skipAfterFailures, 2);
   assert.equal(written.skipMinutes, 30);
   assert.equal(written.forceIntercept, true);
 });
 
-t('旧配置升级：v1 单代理默认 → 默认两级链（补 glm-session 级）', () => {
+t('旧配置升级：v1 单代理默认 → 单级 session', () => {
   const { result } = inFakeHome(writeVisionCfg(legacyV1()), `return lib.loadConfig();`);
-  assert.deepEqual(result.chain, ['glm-session', 'glm-flash']);
+  assert.deepEqual(result.chain, ['session']);
+  assert.equal(result.proxies.length, 1);
 });
 
-t('旧配置升级：v2 两级默认与现行默认一致，保持原样', () => {
+t('旧配置升级：未自定义的 v2 两级默认自动升级为单级 session', () => {
   const { result } = inFakeHome(writeVisionCfg(legacyV2()), `return lib.loadConfig();`);
-  assert.deepEqual(result.chain, ['glm-session', 'glm-flash']);
-  assert.equal(result.proxies.length, 2);
+  assert.deepEqual(result.chain, ['session']);
+  assert.equal(result.proxies.length, 1);
+  assert.equal(result.proxies[0].useProvider, 'session');
+  assert.equal(result.proxies[0].model, '');
 });
 
 t('旧配置升级：改过的配置保持原样（换模型/改模式都不动）', () => {
@@ -302,9 +383,9 @@ t('旧配置升级：改过的配置保持原样（换模型/改模式都不动�
 
 // —— 真实配置（读本机 ~/.zcode，验证真实供应商可解析） ——
 
-t('真实配置：链中代理全部解析成功（无 __missing/__resolveError）', () => {
+t('真实配置：链中代理全部解析成功（无 __missing/__resolveError）', async () => {
   const cfg = lib.loadConfig();
-  const cps = lib.resolveChainProxies(cfg, null);
+  const cps = await lib.resolveChainProxies(cfg, null);
   assert.ok(cps.length >= 2, '链至少两级');
   for (const p of cps) {
     assert.ok(!p.__missing, `${p.name} 未定义`);
@@ -313,11 +394,12 @@ t('真实配置：链中代理全部解析成功（无 __missing/__resolveError�
   }
 });
 
-t('真实配置：xiaomi-mimo 解析出首选视觉模型 mimo-v2.6-flash', () => {
-  const r = lib.resolveProviderRef('xiaomi-mimo', null);
+t('真实配置：xiaomi-mimo 解析出首选视觉模型 mimo-v2.6-flash', async () => {
+  const r = await lib.resolveProviderRef('xiaomi-mimo', null);
   assert.equal(r.preferredModel, 'mimo-v2.6-flash');
   assert.ok(['anthropic', 'openai'].includes(r.format));
 });
 
+await Promise.all(asyncTests);
 console.log(`\n${passed} 通过，${failed} 失败`);
 if (failed) process.exit(1);

@@ -6,12 +6,20 @@ ZCode 插件市场，市场名 `duanluan-zcode-plugins`。围绕 token 效率与
 
 | 插件 | 版本 | 作用 | 命令（**加粗 = 装后必做**） |
 |---|---|---|---|
-| [ZCode Vision](plugins/zcode-vision/README.md) | 1.5.0 | 纯文本模型也能读图（默认跟随会话供应商） | **/vision-setup**、/vision-proxy、/vision-chain、/vision |
-| [Headroom](plugins/headroom/README.md) | 1.1.0 | 请求层压缩，省对话 token；CPU/省电自动切换压缩设备 | **/hr-setup**、/hr-status、/hr-proxy、/hr |
-| [rtk](plugins/rtk/README.md) | 1.2.0 | 命令输出源头压缩 60-90% | **/rtk-setup**、/rtk-status、/rtk |
+| [ZCode Vision](plugins/zcode-vision/README.md) | 1.7.0 | 纯文本模型也能读图（默认跟随会话供应商与其当前模型；只登录账号的机器自动换取直连凭据） | **/vision-setup**、/vision-proxy、/vision-chain、/vision |
+| [Headroom](plugins/headroom/README.md) | 1.2.0 | 请求层压缩，省对话 token；CPU/省电自动切换压缩设备 | **/hr-setup**、/hr-status、/hr-proxy、/hr |
+| [rtk](plugins/rtk/README.md) | 1.3.0 | 命令输出源头压缩 60-90% | **/rtk-setup**、/rtk-status、/rtk |
 | [OpenCodeReview](plugins/open-code-review/README.md) | 1.1.0 | Git 变更行级 AI 评审 | **/ocr-setup**、/ocr-delegate-review、/ocr-review、/ocr-scan、/ocr |
 
 点击插件名进入该插件的完整文档。所有命令的菜单简介里都带用法示例；大部分参数原样传给底层命令行工具。
+
+## 🗂️ 仓库结构（对齐上游 zcode-plugins）
+
+- `ui-plugins/<名>/`：插件源码（钩子、命令、技能、MCP 服务、页面源码），开发只改这里
+- `plugins/<名>/`：构建产物，安装与市场分发的就是它；`pnpm build` 从源码组装生成，不手改
+- 版本号三处保持一致：根 `marketplace.json`、`ui-plugins/<名>/.zcode-plugin/plugin.json`、`ui-plugins/<名>/package.json`
+
+本地开发循环：改 `ui-plugins/` → `pnpm build` → `scripts/install-plugin-local.sh <名>` → 开新会话验证（详见 [AGENTS.md](AGENTS.md)）。
 
 ## 📦 安装
 

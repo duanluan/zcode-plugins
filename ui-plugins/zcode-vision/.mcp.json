@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "vision": {
+      "command": "node",
+      "args": [
+        "${ZCODE_PLUGIN_ROOT}/hooks/vision-mcp.mjs"
+      ],
+      "timeoutMs": 180000
+    }
+  }
+}

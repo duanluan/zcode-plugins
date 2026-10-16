@@ -15,6 +15,7 @@
 
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import {
   IMAGE_CACHE_ROOT,
@@ -160,7 +161,7 @@ async function main() {
   }
 
   const cache = loadCache();
-  const chainProxies = resolveChainProxies(cfg, payload.session_id);
+  const chainProxies = await resolveChainProxies(cfg, payload.session_id);
   const fp = chainFingerprint(chainProxies);
   const results = [];
   const models = new Set();
@@ -199,15 +200,66 @@ async function main() {
 }
 
 // ---- /vision test 与 zcode-pro「测试」按钮共用：找一张真实图片跑全链 ----
+// 内置测试图（320x120 PNG，灰底黑字“zcode-vision test / OK 1016”）：本机从没发过
+// 图片时 image-cache 目录不存在或为空，测试按钮用它兜底，任何机器开箱可测
+const TEST_IMAGE_B64 = [
+    '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'
+    ].join('');
+
+function builtinTestImage() {
+  const p = path.join(IMAGE_CACHE_ROOT, '..', 'zcode-vision-test.png');
+  try {
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, Buffer.from(TEST_IMAGE_B64, 'base64'));
+  } catch { /* 写不进就退 tmp */ return writeTmpTestImage(); }
+  return p;
+}
+
+function writeTmpTestImage() {
+  const p = path.join(fs.realpathSync?.(process.env.TMPDIR || '.') , 'zcode-vision-test.png');
+  fs.writeFileSync(p, Buffer.from(TEST_IMAGE_B64, 'base64'));
+  return p;
+}
+
 async function runTest(givenFile) {
   const cfg = loadConfig();
   let file = givenFile;
   if (!file) {
-    const sessions = fs
-      .readdirSync(IMAGE_CACHE_ROOT)
-      .filter((d) => d.startsWith('sess_'))
-      .map((d) => path.join(IMAGE_CACHE_ROOT, d))
-      .filter((d) => fs.statSync(d).isDirectory());
+    // 目录不存在按空处理（readdirSync 会 ENOENT 崩掉）
+    const sessions = fs.existsSync(IMAGE_CACHE_ROOT)
+      ? fs
+          .readdirSync(IMAGE_CACHE_ROOT)
+          .filter((d) => d.startsWith('sess_'))
+          .map((d) => path.join(IMAGE_CACHE_ROOT, d))
+          .filter((d) => { try { return fs.statSync(d).isDirectory(); } catch { return false; } })
+      : [];
     const all = sessions.flatMap((dir) =>
       fs
         .readdirSync(dir)
@@ -215,7 +267,7 @@ async function runTest(givenFile) {
         .map((f) => ({ p: path.join(dir, f), m: fs.statSync(path.join(dir, f)).mtimeMs })),
     );
     all.sort((a, b) => b.m - a.m);
-    file = all[0]?.p;
+    file = all[0]?.p || builtinTestImage();
   }
   if (!file || !fs.existsSync(file)) {
     console.error('未找到可用测试图片（可指定路径：--test <图片路径>）');
@@ -223,7 +275,7 @@ async function runTest(givenFile) {
   }
   console.error(`测试图片：${file}`);
   console.error(`链：${(cfg.chain || []).join(cfg.chainMode === 'pipeline' ? ' → ' : ' ⤵ 失败则 ')}`);
-  const chainProxies = resolveChainProxies(cfg, null);
+  const chainProxies = await resolveChainProxies(cfg, null);
   const { buf, mime } = await prepareImage(file, compressThresholdBytesOf(cfg));
   const t0 = Date.now();
   const { desc, used, errors } = await runChain(cfg, chainProxies, buf, mime);
