@@ -12,7 +12,7 @@ zcode-vision 插件管理入口。配置文件是唯一事实来源：`~/.zcode/
 
 用 python3 读 `~/.zcode/zcode-vision.json` 与 `~/.zcode/zcode-vision-cache.json`，向用户汇总：
 
-- enabled、chainMode、chain 顺序、forceIntercept（主模型能看图时是否也拦截、交给视觉代理识别）、compressThresholdKB（大图压缩阈值 KB，0 = 不压缩，可用 `/vision config compressThresholdKB=值` 修改）
+- enabled、interceptMode（tool=识别结果卡片可见 / inject=后台静默注入）、chainMode、chain 顺序、forceIntercept（主模型能看图时是否也拦截、交给视觉代理识别）、compressThresholdKB（大图压缩阈值 KB，0 = 不压缩，可用 `/vision config compressThresholdKB=值` 修改）
 - 每个代理：名称、baseUrl 或 useProvider（跟随谁）、model、apiKey 是否已配（只显示「已配/未配」，不显示值）、prompt 前 40 字
 - 缓存条目数；`~/.zcode-vision.log` 最后 5 行（存在时）
 - 提醒：主模型是 flash 小模型（glm-5.3-flash / mimo-v2.6-flash 等）时自动跳过识别——识别就是它自己，不注入描述文字；主模型能看图时由 forceIntercept 决定（默认照常识别）。关闭用 `/vision off`
@@ -23,6 +23,7 @@ zcode-vision 插件管理入口。配置文件是唯一事实来源：`~/.zcode/
 
 | 键 | 含义 | 默认 | 范围 |
 |---|---|---|---|
+| `interceptMode` | 拦截模式：tool = 钩子只注入指路文本，识别由模型调 vision_ask 完成，结果卡片对用户可见（默认）；inject = 后台预跑识别并把全文注入上下文（用户看不到识别文字，快、省一次模型往返） | tool | tool / inject |
 | `forceIntercept` | 就算主模型支持图片输入也拦截图片、交给视觉代理识别并注入描述；false = 主模型能看图就直接放行（flash 小模型主模型始终不拦截） | true | true / false |
 | `compressThresholdKB` | 大图压缩阈值 KB：超过先压缩再识别（最长边 2000、JPEG85）；0 = 不压缩 | 1024 | 0–102400 |
 | `pollMs` | 等内联图片落盘的最长时间（毫秒） | 3000 | 0–60000 |

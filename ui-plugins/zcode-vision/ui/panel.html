@@ -20,8 +20,13 @@
     font: 13px/1.5 -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   }
   .qa { margin-bottom: 10px; }
-  .qa .q { color: var(--muted); margin-bottom: 4px; }
-  .qa .q b { color: var(--text); font-weight: 600; }
+  .head { display: flex; align-items: flex-start; gap: 8px; }
+  .head .q { color: var(--muted); margin: 0; flex: 1; min-width: 0; }
+  .head .q b { color: var(--text); font-weight: 600; }
+  /* 收起时问题只显示一行，识别全文与图片藏在展开区里 */
+  #card.collapsed .head .q { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #card.collapsed #detail { display: none; }
+  #toggle { flex-shrink: 0; }
   .qa .a { word-break: break-word; }
   .qa .a h3 { font-size: 13px; margin: 8px 0 4px; }
   .qa .a p { margin: 4px 0; }
@@ -56,21 +61,26 @@
 </head>
 <body>
   <div id="placeholder" class="hint">等待 vision_ask 调用后显示图片与问答。</div>
-  <section id="card" style="display:none;">
-    <div class="qa">
+  <section id="card" class="collapsed" style="display:none;">
+    <div class="head">
       <div class="q">问：<b id="q"></b> <span id="meta" class="hint"></span></div>
-      <div class="a" id="a"></div>
+      <button id="toggle" aria-expanded="false">展开</button>
     </div>
-    <div class="imagewrap" id="wrap">
-      <img id="img" alt="被识别的图片" />
-      <div id="sel"></div>
+    <div id="detail">
+      <div class="qa">
+        <div class="a" id="a"></div>
+      </div>
+      <div class="imagewrap" id="wrap">
+        <img id="img" alt="被识别的图片" />
+        <div id="sel"></div>
+      </div>
+      <div class="actions">
+        <button id="ref">引用选区到对话</button>
+        <span class="hint">在图上拖动框选；不框选则引用整图。引用后接着提问即可。</span>
+        <span id="status"></span>
+      </div>
+      <div class="path" id="path"></div>
     </div>
-    <div class="actions">
-      <button id="ref">引用选区到对话</button>
-      <span class="hint">在图上拖动框选；不框选则引用整图。引用后接着提问即可。</span>
-      <span id="status"></span>
-    </div>
-    <div class="path" id="path"></div>
   </section>
   <div id="err"></div>
   <script>/*__APP_JS__*/</script>

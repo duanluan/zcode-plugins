@@ -85,6 +85,21 @@ function collectInlineImages(sessionId, pollMs) {
   return [];
 }
 
+// tool 模式：不在后台预跑识别，只注入指路文本让模型调 vision_ask——识别结果以工具
+// 卡片展示给用户（钩子注入的纯文字不进界面，这是 ZCode 的显示规则，见 vision-lib）
+function buildPointerContext(files) {
+  const lines = [
+    `[zcode-vision] 用户本轮发送了 ${files.length} 张图片。图片内容尚未识别：请先调用 vision_ask 工具识别，再回答用户的问题。`,
+    '',
+  ];
+  files.forEach((f, i) => {
+    lines.push(`[图${i + 1} · ${f}]`);
+    lines.push(`调用参数：image_path="${f}"，question="请识别这张图片的全部内容"（固定问法，同图重发可命中缓存）。`);
+  });
+  lines.push('（识别结果会以卡片展示给用户，用户可展开查看；不要仅凭文件名猜测图片内容，也不要要求用户重发图片。）');
+  return { additionalContext: lines.join('\n') };
+}
+
 function buildContext(results, models) {
   const ok = results.filter((r) => r.desc);
   const lines = [
@@ -157,6 +172,12 @@ async function main() {
         '如需图片内容请让用户改用文字描述或重发图片。',
     };
     process.stdout.write(JSON.stringify(out));
+    process.exit(0);
+  }
+
+  // tool 模式（默认）：钩子只做检测与指路，识别交给 vision_ask 工具——结果卡片对用户可见
+  if (cfg.interceptMode !== 'inject') {
+    process.stdout.write(JSON.stringify(buildPointerContext(uniq)));
     process.exit(0);
   }
 

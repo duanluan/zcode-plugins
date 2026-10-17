@@ -6,12 +6,12 @@ ZCode 插件市场，市场名 `duanluan-zcode-plugins`。围绕 token 效率与
 
 | 插件 | 版本 | 作用 | 命令（**加粗 = 装后必做**） |
 |---|---|---|---|
-| [ZCode Vision](plugins/zcode-vision/README.md) | 1.7.0 | 纯文本模型也能读图（默认跟随会话供应商与其当前模型；只登录账号的机器自动换取直连凭据） | **/vision-setup**、/vision-proxy、/vision-chain、/vision |
-| [Headroom](plugins/headroom/README.md) | 1.2.0 | 请求层压缩，省对话 token；CPU/省电自动切换压缩设备 | **/hr-setup**、/hr-status、/hr-proxy、/hr |
-| [rtk](plugins/rtk/README.md) | 1.3.0 | 命令输出源头压缩 60-90% | **/rtk-setup**、/rtk-status、/rtk |
-| [OpenCodeReview](plugins/open-code-review/README.md) | 1.1.0 | Git 变更行级 AI 评审 | **/ocr-setup**、/ocr-delegate-review、/ocr-review、/ocr-scan、/ocr |
+| [ZCode Vision](plugins/zcode-vision/README.md) | 1.7.2 | 纯文本模型也能读图（默认跟随会话供应商与其当前模型；识别结果以卡片展示，默认收起） | **/vision-setup**、/vision-proxy、/vision-chain、/vision |
+| [Headroom](plugins/headroom/README.md) | 1.3.0 | 请求层压缩，省对话 token；任意供应商可接入（/hr-join），CPU/省电自动切换压缩设备 | **/hr-setup**、/hr-join、/hr-status、/hr-proxy、/hr |
+| [rtk](plugins/rtk/README.md) | 1.4.0 | 命令输出源头压缩 60-90%，压缩记录面板可查被省略的输出 | **/rtk-setup**、/rtk-status、/rtk |
+| [OpenCodeReview](plugins/open-code-review/README.md) | 1.2.0 | Git 变更行级 AI 评审，结果面板可勾选处理 | **/ocr-setup**、/ocr-delegate-review、/ocr-review、/ocr-scan、/ocr |
 
-点击插件名进入该插件的完整文档。所有命令的菜单简介里都带用法示例；大部分参数原样传给底层命令行工具。
+点击插件名进入该插件的完整文档。四插件均带 ZCode ≥ 3.15.1 桌面端的交互页面（识图卡片、压缩记录、输出查看、评审面板），旧版客户端自动退回纯文本行为。所有命令的菜单简介里都带用法示例；大部分参数原样传给底层命令行工具。
 
 ## 🗂️ 仓库结构（对齐上游 zcode-plugins）
 
@@ -27,7 +27,7 @@ ZCode 插件市场，市场名 `duanluan-zcode-plugins`。围绕 token 效率与
 
 1. ZCode → 插件市场 → 右上角「添加」→ 添加插件市场，填写 `duanluan/zcode-plugins`
 2. 找到 **duanluan-zcode-plugins** 市场，安装需要的插件并启用
-3. 先跑上表加粗的装后必做命令（headroom 还需在界面新建供应商，[见其文档](plugins/headroom/README.md)）
+3. 先跑上表加粗的装后必做命令（headroom 的供应商接入由 /hr-setup 自动完成，界面手建只是回退，[见其文档](plugins/headroom/README.md)）
 
 更新插件：市场源面板（搜索框上方齿轮）刷新 → 重装对应插件 → 新会话生效。
 

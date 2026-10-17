@@ -2,15 +2,15 @@
 
 [← 返回插件总览](../../README.md#-插件一览)
 
-**装后必做：两步。** ① 跑 `/hr-setup`；② 在 ZCode 界面新建自定义供应商（界面操作，无法自动化）。
+**装后必做：一步。** 跑 `/hr-setup`——headroom 安装、代理启动、供应商接入（自动创建或迁移注册，界面手建只是回退方式，见第 2 步）一次完成。
 
-**原理**：ZCode → Headroom 代理（127.0.0.1:8787，本地压缩工具输出/日志/大 JSON）→ 智谱 GLM。API Key 原样转发，**GLM 会员额度照常**。
+**原理**：ZCode → Headroom 代理（127.0.0.1:8787，本地压缩工具输出/日志/大 JSON）→ 接入的上游（默认智谱 GLM；任意供应商可经 /hr-join 接入，按 API key 分流）。API Key 原样转发，**会员额度照常**。
 
-### 1️⃣ 第 1 步：`/hr-setup`
+### `/hr-setup`
 
-确认 headroom 已装（未装则 uv/pipx/pip 兜底安装）→ 后台启动代理（上游自动指向 GLM）→ `headroom doctor` 验证 → 给出界面配置清单。
+确认 headroom 已装（未装则 uv/pipx/pip 兜底安装）→ 后台启动代理（上游自动指向 GLM）→ `headroom doctor` 验证 → 供应商接入（已有指 8787 的存量供应商自动注册迁移；直连厂商的（MiMo、中转站）逐个询问是否接入；一个都没有时自动新建，失败才走下面的界面手建）。
 
-### 2️⃣ 第 2 步：新建自定义供应商（界面操作，无法自动化）
+### 回退：在界面手动新建自定义供应商（自动创建失败时）
 
 自带的“智谱”供应商走内部 OAuth、接入地址写死，**指不了代理**，所以必须新建。设置 → 模型设置 → 供应商列表“+ 添加供应商”：
 
@@ -48,7 +48,7 @@ headroom 压缩模型默认自动选最快设备（CUDA/MPS 显卡优先，回�
 
 ### 🔄 自动启动
 
-长期使用建议配置 **systemd 用户服务**（开机自启、崩溃自动重启，`/hr-setup` 第 2 步含完整 unit 内容）——`nohup` 启动的代理重启电脑后会丢失，导致 ZCode 提示"重新连接中"。插件另带兜底：每次会话启动时检测 8787 端口，代理没跑就后台启动（端口探测用 `/livez`）。环境变量可覆盖：`HEADROOM_PROXY_PORT`、`HEADROOM_PROXY_AUTOSTART=0`（关闭）、`HEADROOM_UPSTREAM_ANTHROPIC`（上游地址）、`HEADROOM_KOMPRESS_BACKEND` / `HEADROOM_POWER_SAVE_CPU`（见上节，仅当前进程生效）。
+长期使用建议配置 **systemd 用户服务**（开机自启、崩溃自动重启，`/hr-setup` 含完整 unit 内容；**接入多供应商路由（/hr-join）后不要建**——8787 由路由器接管，systemd 的自动重启会反复抢端口）——`nohup` 启动的代理重启电脑后会丢失，导致 ZCode 提示"重新连接中"。插件另带兜底：每次会话启动时检测 8787 端口，代理没跑就后台启动（端口探测用 `/livez`）。环境变量可覆盖：`HEADROOM_PROXY_PORT`、`HEADROOM_PROXY_AUTOSTART=0`（关闭）、`HEADROOM_UPSTREAM_ANTHROPIC`（上游地址）、`HEADROOM_KOMPRESS_BACKEND` / `HEADROOM_POWER_SAVE_CPU`（见上节，仅当前进程生效）。
 
 ### 🪟 Windows
 

@@ -25,6 +25,10 @@ export const DEFAULT_PROMPT =
 // format: "anthropic"=Anthropic Messages；"openai"=OpenAI Chat Completions。
 export const DEFAULT_CONFIG = {
   enabled: true,
+  // 拦截模式：tool=只注入"调 vision_ask"的指路文本，识别由工具完成，结果卡片对用户
+  // 可见（ZCode 的钩子注入文字不进界面，工具结果才显示）；inject=后台预跑识别并注入
+  // 全文（快、省一次模型往返，但用户看不到识别过程）
+  interceptMode: 'tool',
   chainMode: 'fallback', // fallback=依次尝试到成功为止；pipeline=逐级加工（描述→校对→提炼）
   chain: ['session'],
   proxies: [
