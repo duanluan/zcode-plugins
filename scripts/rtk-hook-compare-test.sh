@@ -1,6 +1,6 @@
 #!/bin/sh
 # rtk 钩子行为对照：sh 版 vs node 版，同批命令比对退出码（0=放行 2=拦截）
-cd "$(dirname -- "$0")/../plugins/rtk/hooks" || exit 1
+cd "$(dirname -- "$0")/../ui-plugins/rtk/hooks" || exit 1
 rm -rf "${RTK_DIR:-$HOME/.zcode-rtk}/reminded" 2>/dev/null
 
 run_case() { # run_case <解释器> <脚本> <命令json>

@@ -1,0 +1,20 @@
+{
+  "name": "duanluan-zcode-plugins",
+  "version": "0.0.0",
+  "private": true,
+  "description": "ZCode 插件市场源仓库：ui-plugins/ 放源码，plugins/ 放构建产物（对齐上游 zcode-plugins 结构）。",
+  "scripts": {
+    "build": "node scripts/build-plugins.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "marketplace:local": "node scripts/marketplace-local.mjs"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/core": "2.0.0",
+    "@modelcontextprotocol/ext-apps": "2.0.0",
+    "esbuild": "0.25.12",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

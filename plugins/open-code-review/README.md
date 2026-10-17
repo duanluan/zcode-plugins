@@ -43,3 +43,7 @@ ocr config set llm.model glm-5.3-flash    # 或 glm-5.3
 ocr config set llm.use_anthropic false
 ocr llm test
 ```
+
+### 🖥️ 评审面板（ZCode ≥ 3.15.1 桌面端）
+
+`/ocr-delegate-review` 评审完成后，模型会把结构化评审条目经 `ocr_render_review` 工具展示为内嵌卡片：条目按高/中/低严重级分组，展开看详情；勾选已处理的条目（同一会话内记住状态），点“把未处理项交回对话”让模型继续处理剩余意见。全部意见同时保留在工具的文本输出里，旧版客户端与模型行为不变。

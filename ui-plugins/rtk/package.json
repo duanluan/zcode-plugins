@@ -1,0 +1,6 @@
+{
+  "name": "@duanluan/plugin-rtk",
+  "version": "1.4.0",
+  "private": true,
+  "description": "接入真 rtk：命令输出源头压缩与改写建议钩子。"
+}

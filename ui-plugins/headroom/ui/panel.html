@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>headroom 压缩记录</title>
+<style>
+  :root {
+    --bg: #fafafa; --panel: #ffffff; --text: #1f2328; --muted: #656d76;
+    --border: #d8dee4; --accent: #0969da; --hover: #f0f3f6;
+    --mono: ui-monospace, "Cascadia Code", Consolas, Menlo, monospace;
+  }
+  [data-theme="dark"] {
+    --bg: #14171a; --panel: #1c2126; --text: #e6edf3; --muted: #9198a1;
+    --border: #323941; --accent: #4493f8; --hover: #262d33;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 12px; background: var(--bg); color: var(--text);
+    font: 13px/1.5 -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  header { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+  header h1 { font-size: 14px; margin: 0; }
+  button {
+    padding: 4px 10px; border: 1px solid var(--border); border-radius: 6px;
+    background: var(--panel); color: var(--text); cursor: pointer;
+  }
+  button:hover { background: var(--hover); }
+  .actions { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
+  .cards { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  .card {
+    flex: 1 1 150px; min-width: 150px; padding: 10px 12px; border: 1px solid var(--border);
+    border-radius: 8px; background: var(--panel);
+  }
+  .card .label { color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+  .card .value { font-size: 20px; font-weight: 600; }
+  .card .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .section-title { font-size: 13px; font-weight: 600; margin: 12px 0 6px; }
+  .retrieve { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .retrieve input {
+    flex: 1; min-width: 140px; padding: 4px 8px; border: 1px solid var(--border);
+    border-radius: 6px; background: var(--panel); color: var(--text); font-family: var(--mono);
+  }
+  #result {
+    margin-top: 8px; padding: 10px; border: 1px solid var(--border); border-radius: 6px;
+    background: var(--panel); font-family: var(--mono); font-size: 12px; line-height: 1.45;
+    white-space: pre-wrap; word-break: break-all; max-height: 50vh; overflow: auto;
+  }
+  #err { color: #cf222e; font-size: 12px; white-space: pre-wrap; margin-top: 6px; }
+  [data-theme="dark"] #err { color: #f85149; }
+  #msg { color: var(--muted); font-size: 12px; }
+  .hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
+</style>
+</head>
+<body>
+  <header>
+    <h1>headroom 压缩记录</h1>
+    <button id="refresh">刷新</button>
+  </header>
+  <div id="msg">加载中…</div>
+  <div id="err"></div>
+  <div class="cards" id="cards"></div>
+  <div class="hint" id="modelnote"></div>
+  <div class="section-title">每日节省（近 14 天）</div>
+  <div class="chart" id="daily"></div>
+  <div class="daydetail" id="daydetail"></div>
+  <div class="daydetail" id="ratenote"></div>
+  <div class="section-title" id="modelstitle">按模型分布（近 14 天）</div>
+  <div class="models" id="models"></div>
+  <div class="section-title">按哈希取回原文</div>
+  <div class="retrieve">
+    <input id="hash" placeholder="压缩标记里的哈希，如 34573a04624c" />
+    <button id="go">取回</button>
+  </div>
+  <div class="hint">哈希来自对话里的压缩标记“[N items compressed... hash=xxx]”，也可以直接点下面列表里的记录。</div>
+  <div class="section-title">最近被压缩的内容（点击看压缩前原文，约 30 分钟内有效）</div>
+  <div id="recent"></div>
+  <style>
+  #recent { display: flex; flex-direction: column; gap: 4px; }
+  .chart {
+    display: flex; align-items: stretch; gap: 3px; height: 110px;
+    padding: 8px 10px 4px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel);
+  }
+  .chart .col { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; min-width: 0; }
+  .chart .bar { width: 70%; max-width: 22px; background: var(--accent); border-radius: 2px 2px 0 0; min-height: 1px; }
+  .chart .col.empty .bar { background: var(--border); min-height: 1px; }
+  .chart .dlabel { font-size: 9px; color: var(--muted); text-align: center; margin-top: 3px; overflow: hidden; white-space: nowrap; max-width: 100%; }
+  .daydetail { font-size: 12px; color: var(--muted); margin-top: 4px; min-height: 1.3em; }
+  .models { display: flex; flex-direction: column; gap: 5px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); }
+  .mrow { display: grid; grid-template-columns: minmax(5em, 10em) 1fr auto; gap: 8px; align-items: center; }
+  .mrow .mname { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mrow .mtrack { height: 8px; border-radius: 4px; background: var(--hover); overflow: hidden; }
+  .mrow .mfill { height: 100%; border-radius: 4px; background: var(--accent); }
+  .mrow .mnum { font-size: 11px; color: var(--muted); white-space: nowrap; }
+    .rrow {
+      display: grid; grid-template-columns: 4.2em minmax(0, 7.5em) 1fr; gap: 8px; align-items: baseline;
+      padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px;
+      background: var(--panel); color: var(--text); cursor: pointer; text-align: left; width: 100%;
+    }
+    .rrow:hover { background: var(--hover); }
+    .rrow .rtime { color: var(--muted); font-size: 12px; flex: none; }
+    .rrow .rhash { font-family: var(--mono); font-size: 12px; color: var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .rrow .rprev { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  </style>
+  <pre id="result" style="display:none;"></pre>
+  <div class="actions" id="r-actions" style="display:none;">
+    <button id="r-copy">复制</button>
+    <button id="r-quote">引用到对话</button>
+    <span class="hint" id="r-status"></span>
+  </div>
+  <script>/*__APP_JS__*/</script>
+</body>
+</html>

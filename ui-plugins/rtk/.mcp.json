@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "rtk-ui": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "${ZCODE_PLUGIN_ROOT}/mcp/rtk-ui.mjs"
+      ],
+      "timeoutMs": 60000
+    }
+  }
+}

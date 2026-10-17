@@ -46,7 +46,7 @@ python3 改 `enabled` 为 true/false 后 cat 确认，并告诉用户当前状�
 ls -d ~/.zcode/cli/plugins/cache/duanluan-zcode-plugins/zcode-vision/*/hooks/vision-hook.mjs 2>/dev/null | head -1
 ```
 
-都没有则用源码仓库 `/home/njcm/workspaces/my/projects/zcode-plugins/plugins/zcode-vision/hooks/vision-hook.mjs`。然后：
+都没有则用源码仓库 `/home/njcm/workspaces/my/projects/zcode/zcode-plugins/ui-plugins/zcode-vision/hooks/vision-hook.mjs`。然后：
 
 ```sh
 node <钩子脚本> --test [图片路径]

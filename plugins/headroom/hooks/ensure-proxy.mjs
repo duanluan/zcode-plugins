@@ -15,7 +15,7 @@
 
 import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { platform } from 'node:os';
+import { homedir, platform } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
@@ -23,6 +23,39 @@ import { fileURLToPath } from 'node:url';
 const args = process.argv.slice(2);
 const action = args[0] || 'ensure';
 const here = path.dirname(fileURLToPath(import.meta.url));
+
+// 多供应商压缩路由（hr-multi）：providers 已配置时由它接管 ensure/start/restart/status；
+// backend/power 先写配置再转 hr-multi 重启实例（旧代理的重启语义在多实例模式下不适用，
+// 且转给 hr-multi 会因动作名不认识被打"用法"错误）；stop 无论何种状态都"双跑"
+// （multi 停路由器与实例 + 旧代理停单实例）——迁移切换时旧 headroom 占着 8787，
+// 只跑 multi 的 stop 会让旧实例漏网、路由器起不来。配置路径跟随 HR_HEADROOM_CONFIG，
+// 与 hr-multi 保持同一视图（自测时不误碰真机）
+{
+  const { handle } = await import('./hr-multi.mjs');
+  const cfgPath = process.env.HR_HEADROOM_CONFIG || path.join(homedir(), '.zcode', 'headroom.json');
+  let hasProviders = false;
+  try {
+    const cfg = JSON.parse(readFileSync(cfgPath, 'utf8'));
+    hasProviders = Array.isArray(cfg.providers) && cfg.providers.length > 0;
+  } catch { /* 配置缺失 = 未接入 */ }
+  if (hasProviders && ['ensure', 'start', 'restart', 'status'].includes(action)) {
+    const r = await handle(action);
+    if (r !== null) process.exit(r === 3 ? 0 : r);
+  } else if (hasProviders && action === 'backend' && args[1]) {
+    const { configSet, configFile } = await import('./headroom-lib.mjs');
+    configSet('kompressBackend', args[1]);
+    const r = await handle('restart');
+    console.log(`kompressBackend=${args[1]} 已写入 ${configFile()} 并重启实例生效`);
+    process.exit(r === 3 ? 0 : r);
+  } else if (hasProviders && action === 'power' && ['battery', 'saver', 'off'].includes(args[1])) {
+    const { configSet } = await import('./headroom-lib.mjs');
+    configSet('powerSaveCpu', args[1]);
+    console.log(`省电自动切换已写入配置（${args[1]}）。注意：多实例模式下电源监视器不自动重启实例（避免误停路由器）；要立即切换压缩后端用 backend 动作`);
+    process.exit(0);
+  } else if (action === 'stop' && hasProviders) {
+    await handle('stop'); // 继续落到旧代理 stop（双跑）
+  }
+}
 
 if (platform() !== 'win32') {
   // POSIX：委托 sh 版（systemd 协作、pgrep/pkill 等逻辑都在那边）

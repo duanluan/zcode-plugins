@@ -37,4 +37,4 @@ headroom $ARGUMENTS
 
 ## 结果处理
 
-输出里若出现"代理未运行 / 路由未配置"类提示，引导用户：代理管理用 `/hr-proxy`，ZCode 界面配置步骤见 `/hr-setup` 第 4 步。
+输出里若出现"代理未运行 / 路由未配置"类提示，引导用户：代理管理用 `/hr-proxy`，多供应商接入用 `/hr-join`，ZCode 界面配置步骤见 `/hr-setup` 第 4 步。

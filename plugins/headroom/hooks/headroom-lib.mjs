@@ -3,7 +3,8 @@
 // 检测、压缩后端决策、代理进程管理、监视器单实例。被 hooks/ensure-proxy.mjs 与
 // hooks/power-watch.mjs 复用（import 使用，不直接执行）。
 //
-// 配置文件 ~/.zcode/headroom.json（可选，扁平 JSON，由 configSet 重写整文件）：
+// 配置文件 ~/.zcode/headroom.json（可选，扁平 JSON，configSet 重写整文件但保留
+// providers/router/instances 等其他键）：
 //   kompressBackend    "auto"（默认，headroom 自动选最快设备：CUDA 优先）
 //                      "cpu" 强制 CPU 压缩；也支持 headroom 原生值原样透传
 //   powerSaveCpu       省电自动切换模式："battery"（拔电→CPU，插电→切回）|
@@ -22,12 +23,13 @@ import path from 'node:path';
 import process from 'node:process';
 
 export const home = homedir();
-export const configFile = () => path.join(home, '.zcode', 'headroom.json');
+// HR_HEADROOM_CONFIG：hr-multi 自测用，配置文件路径跟随覆盖，保证测试与真机互不干扰
+export const configFile = () => process.env.HR_HEADROOM_CONFIG || path.join(home, '.zcode', 'headroom.json');
 export const stateFile = () => path.join(home, '.zcode-headroom-proxy.state');
 export const watchPidFile = () => path.join(home, '.zcode-headroom-power-watch.pid');
 export const proxyLog = () => path.join(home, '.zcode-headroom-proxy.log');
 
-// —— 配置读写（三键整文件形状，与 hr_config_set 一致）——
+// —— 配置读写（三个电源/压缩键带默认值；configSet 只改目标键，其余键原样保留）——
 
 function readConfigRaw() {
   try { return JSON.parse(readFileSync(configFile(), 'utf8')); } catch { return {}; }
@@ -40,11 +42,12 @@ export function configGet(key, dflt) {
 }
 
 export function configSet(key, value) {
-  const cfg = {
-    kompressBackend: configGet('kompressBackend', 'auto'),
-    powerSaveCpu: configGet('powerSaveCpu', 'off'),
-    powerWatchInterval: Number(configGet('powerWatchInterval', '60')) || 60,
-  };
+  // 在整份配置上改目标键：以前只写三个键重盖整文件，会把 hr-join 写入的 providers
+  // 等键整个丢掉
+  const cfg = readConfigRaw();
+  if (cfg.kompressBackend === undefined) cfg.kompressBackend = 'auto';
+  if (cfg.powerSaveCpu === undefined) cfg.powerSaveCpu = 'off';
+  if (cfg.powerWatchInterval === undefined) cfg.powerWatchInterval = 60;
   if (key === 'kompressBackend') cfg.kompressBackend = value;
   else if (key === 'powerSaveCpu') cfg.powerSaveCpu = ['battery', 'saver'].includes(value) ? value : 'off';
   else if (key === 'powerWatchInterval') cfg.powerWatchInterval = Number(value) || 60;

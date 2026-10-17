@@ -14,11 +14,13 @@
 // 逐段全命中才放行）时一律放行。
 
 import { spawnSync } from 'node:child_process';
-import { accessSync, constants as fsConstants, existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import path, { delimiter } from 'node:path';
+import path from 'node:path';
 import { homedir, platform } from 'node:os';
 import process from 'node:process';
+
+import { findRtk } from '../lib/rtk-bin.mjs';
 
 const WIN = platform() === 'win32';
 const HOME = homedir();
@@ -119,26 +121,6 @@ process.stderr.write(
 process.exit(2);
 
 // ===========================================================================
-
-function findRtk() {
-  const names = WIN ? ['rtk.exe'] : ['rtk'];
-  const isExec = (p) => { try { accessSync(p, fsConstants.X_OK); return true; } catch { return false; } };
-  const hit = (dirs) => {
-    for (const d of dirs) {
-      for (const n of names) {
-        const p = path.join(d, n);
-        if (existsSync(p) && isExec(p)) return p;
-      }
-    }
-    return null;
-  };
-  // 先 PATH（含桌面应用环境常缺的用户级目录兜底清单），与旧版 sh 的查找顺序一致
-  const fromPath = hit(String(process.env.PATH || '').split(delimiter).filter(Boolean));
-  if (fromPath) return fromPath;
-  const dirs = [path.join(HOME, '.local', 'bin'), path.join(HOME, 'miniforge3', 'bin'), '/usr/local/bin', '/usr/bin'];
-  if (WIN) dirs.push(path.join(HOME, '.cargo', 'bin'), path.join(HOME, '.local', 'share', 'rtk', 'bin'));
-  return hit(dirs);
-}
 
 // —— 命令分段与低价值判定（移植自旧版内嵌 python；语义见上方注释） ——
 

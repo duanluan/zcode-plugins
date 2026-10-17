@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ocr 评审面板</title>
+<style>
+  :root {
+    --bg: #fafafa; --panel: #ffffff; --text: #1f2328; --muted: #656d76;
+    --border: #d8dee4; --accent: #0969da; --hover: #f0f3f6;
+    --high: #cf222e; --medium: #9a6700; --low: #57606a;
+    --mono: ui-monospace, "Cascadia Code", Consolas, Menlo, monospace;
+  }
+  [data-theme="dark"] {
+    --bg: #14171a; --panel: #1c2126; --text: #e6edf3; --muted: #9198a1;
+    --border: #323941; --accent: #4493f8; --hover: #262d33;
+    --high: #f85149; --medium: #d29922; --low: #9198a1;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 12px; background: var(--bg); color: var(--text);
+    font: 13px/1.5 -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  header { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; margin-bottom: 10px; }
+  header h1 { font-size: 14px; margin: 0; }
+  header .ref { color: var(--muted); font-size: 12px; font-family: var(--mono); }
+  .summary { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+  .sevbar { display: flex; height: 6px; border-radius: 3px; overflow: hidden; background: var(--hover); margin-bottom: 10px; }
+  .sevbar span { height: 100%; }
+  .group { margin-bottom: 12px; }
+  .group > h2 { font-size: 13px; margin: 0 0 6px; }
+  .group > h2 .n { color: var(--muted); font-weight: 400; }
+  .group.high h2 { color: var(--high); }
+  .group.medium h2 { color: var(--medium); }
+  .group.low h2 { color: var(--low); }
+  .finding {
+    display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; margin-bottom: 6px;
+    border: 1px solid var(--border); border-radius: 6px; background: var(--panel);
+  }
+  .finding.done { opacity: 0.5; }
+  .finding input[type="checkbox"] { margin-top: 3px; flex: none; }
+  .finding .body { flex: 1; min-width: 0; }
+  .finding .loc { font-family: var(--mono); font-size: 12px; color: var(--accent); word-break: break-all; }
+  .finding .summary-line { margin: 2px 0 0; }
+  .finding details { margin-top: 4px; }
+  .finding summary { color: var(--muted); cursor: pointer; font-size: 12px; }
+  .finding .detail { font-size: 12px; margin: 4px 0 0; color: var(--text); word-break: break-word; }
+  .finding .detail h3 { font-size: 12px; margin: 6px 0 2px; }
+  .finding .detail p { margin: 3px 0; }
+  .finding .detail ul, .finding .detail ol { margin: 3px 0; padding-left: 16px; }
+  .finding .detail li { margin: 2px 0; }
+  .finding .detail code {
+    font-family: var(--mono); font-size: 11px;
+    background: rgba(125, 125, 125, 0.15); border-radius: 4px; padding: 0 4px;
+  }
+  .actions { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+  button {
+    padding: 4px 10px; border: 1px solid var(--border); border-radius: 6px;
+    background: var(--panel); color: var(--text); cursor: pointer;
+  }
+  button:hover { background: var(--hover); }
+  #status { font-size: 12px; color: var(--accent); }
+  #err { color: #cf222e; font-size: 12px; white-space: pre-wrap; margin-top: 6px; }
+  [data-theme="dark"] #err { color: #f85149; }
+  .placeholder { color: var(--muted); }
+</style>
+</head>
+<body>
+  <div id="placeholder" class="placeholder">等待评审结果（模型调用 ocr_render_review 后显示）。</div>
+  <section id="panel" style="display:none;">
+    <header>
+      <h1 id="title">评审结果</h1>
+      <span class="ref" id="ref"></span>
+    </header>
+    <div class="summary" id="summary"></div>
+    <div class="sevbar" id="sevbar"></div>
+    <div id="groups"></div>
+    <div class="actions">
+      <button id="send-open">把未处理项交回对话</button>
+      <span id="status"></span>
+    </div>
+  </section>
+  <div id="err"></div>
+  <script>/*__APP_JS__*/</script>
+</body>
+</html>

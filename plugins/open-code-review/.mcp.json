@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "ocr-ui": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "${ZCODE_PLUGIN_ROOT}/mcp/ocr-ui.mjs"
+      ],
+      "env": {
+        "ZCODE_PLUGIN_DATA": "${ZCODE_PLUGIN_DATA}"
+      },
+      "timeoutMs": 30000
+    }
+  }
+}

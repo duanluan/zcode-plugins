@@ -53,7 +53,7 @@ zcode-vision 首次安装或配置混乱时运行本向导。目标产物是合�
 5. **验证**：定位钩子脚本并运行测试（同 /vision test 的做法）：
 
 ```sh
-node "$(ls -d ~/.zcode/cli/plugins/cache/duanluan-zcode-plugins/zcode-vision/*/hooks/vision-hook.mjs 2>/dev/null | head -1 || echo /home/njcm/workspaces/my/projects/zcode-plugins/plugins/zcode-vision/hooks/vision-hook.mjs)" --test
+node "$(ls -d ~/.zcode/cli/plugins/cache/duanluan-zcode-plugins/zcode-vision/*/hooks/vision-hook.mjs 2>/dev/null | head -1 || echo /home/njcm/workspaces/my/projects/zcode/zcode-plugins/ui-plugins/zcode-vision/hooks/vision-hook.mjs)" --test
 ```
 
 6. **收尾**：告诉用户后续管理命令（/vision-proxy 增删代理、/vision-chain 配链与模式、/vision status 看状态、/vision off 关闭），以及 zcode-pro 设置面板可图形化编辑同一配置。

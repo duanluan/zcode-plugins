@@ -2,12 +2,14 @@
 # Headroom 插件共享库：配置读取、电源状态检测、压缩后端决策、代理进程管理。
 # 被 hooks/ensure-proxy.sh 与 hooks/power-watch.sh 复用（source 使用，不直接执行）。
 #
-# 配置文件 ~/.zcode/headroom.json（可选，扁平 JSON，由 hr_config_set 重写整文件）：
+# 配置文件 ~/.zcode/headroom.json（可选，扁平 JSON，hr_config_set 只改目标键、
+# 其余键原样保留）：
 #   kompressBackend    "auto"（默认，headroom 自动选最快设备：CUDA/MPS 显卡优先）
 #                      "cpu" 强制 CPU 压缩；也支持 headroom 原生值 onnx/onnx_cpu/
 #                      onnx_coreml/pytorch/pytorch_mps 等（原样透传）
-#   powerSaveCpu       省电自动切换模式："battery"（默认，拔电→CPU，插电→切回）|
-#                      "saver"（仅系统省电档→CPU，拔电但档位非省电不切）| "off"（关闭）
+#   powerSaveCpu       省电自动切换模式："off"（关闭，默认；与 mjs 版一致）|
+#                      "battery"（拔电→CPU，插电→切回）|
+#                      "saver"（仅系统省电档→CPU，拔电但档位非省电不切）
 #   powerWatchInterval 监视器轮询间隔秒数（默认 60，最小 10）
 #
 # 环境变量覆盖：HEADROOM_KOMPRESS_BACKEND / HEADROOM_POWER_SAVE_CPU（battery|saver|off，
@@ -18,7 +20,7 @@
 
 HR_PLUGIN_ROOT="${HR_PLUGIN_ROOT:-$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)}"
 
-hr_config_file() { printf '%s\n' "${HOME:-/tmp}/.zcode/headroom.json"; }
+hr_config_file() { printf '%s\n' "${HR_HEADROOM_CONFIG:-${HOME:-/tmp}/.zcode/headroom.json}"; }
 hr_state_file() { printf '%s\n' "${HOME:-/tmp}/.zcode-headroom-proxy.state"; }
 hr_watch_pidfile() { printf '%s\n' "${HOME:-/tmp}/.zcode-headroom-power-watch.pid"; }
 hr_proxy_log() { printf '%s\n' "${HOME:-/tmp}/.zcode-headroom-proxy.log"; }
@@ -36,26 +38,44 @@ hr_config_get() { # hr_config_get <key> <default>
     printf '%s\n' "${_cv:-$2}"
 }
 
-# 重写配置文件（仅本插件拥有的 3 个键，会丢弃其他手工添加的键）
+# 在整份配置上只改目标键（用 python3 合并写回；其余键——hr-join 注册的 providers/
+# router/instances 等——原样保留。以前只写本插件三个键重盖整文件，会把它们整个丢掉，
+# 接入后跑一次 backend/power 设置全部供应商就断流，见 ADR-0008 坑清单）
 hr_config_set() { # hr_config_set <key> <value>
     _kk=$1 _kv=$2
-    _kb=$(hr_config_get kompressBackend auto)
-    _kp=$(hr_config_get powerSaveCpu off)
-    _kw=$(hr_config_get powerWatchInterval 60)
     case "$_kk" in
-        kompressBackend) _kb=$_kv ;;
+        kompressBackend|powerWatchInterval) ;;
         powerSaveCpu)
             case "$(printf '%s' "$_kv" | tr '[:upper:]' '[:lower:]')" in
                 battery|saver) ;;
                 *) _kv=off ;;
-            esac
-            _kp=$_kv ;;
-        powerWatchInterval) _kw=$_kv ;;
+            esac ;;
         *) printf 'hr_config_set: 未知键 %s\n' "$_kk" >&2; return 1 ;;
     esac
     mkdir -p "$(dirname "$(hr_config_file)")" 2>/dev/null
-    printf '{\n  "kompressBackend": "%s",\n  "powerSaveCpu": "%s",\n  "powerWatchInterval": %s\n}\n' \
-        "$_kb" "$_kp" "$_kw" >"$(hr_config_file)"
+    python3 - "$_kk" "$_kv" "$(hr_config_file)" <<'PY' || return 1
+import json, sys
+key, val, path = sys.argv[1], sys.argv[2], sys.argv[3]
+try:
+    cfg = json.load(open(path, encoding='utf8'))
+except Exception:
+    cfg = {}
+if not isinstance(cfg, dict):
+    cfg = {}
+cfg.setdefault('kompressBackend', 'auto')
+cfg.setdefault('powerSaveCpu', 'off')
+cfg.setdefault('powerWatchInterval', 60)
+if key == 'powerWatchInterval':
+    try:
+        cfg[key] = int(val)
+    except ValueError:
+        cfg[key] = 60
+else:
+    cfg[key] = val
+with open(path, 'w', encoding='utf8') as f:
+    json.dump(cfg, f, ensure_ascii=False, indent=2)
+    f.write('\n')
+PY
 }
 
 # 省电自动切换模式：off | battery（拔电→cpu）| saver（省电档→cpu）。其他值一律 off。

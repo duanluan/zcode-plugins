@@ -1,11 +1,41 @@
 # zcode-plugins 术语表
 
-ZCode 插件集（zcode-vision、headroom、rtk 等）的领域词汇。只收本项目特有概念，通用编程词汇不收。
+ZCode 插件集（zcode-vision、headroom、rtk、open-code-review）的领域词汇。只收本项目特有概念，通用编程词汇不收。
+
+## UI 插件（通用，ZCode ≥ 3.15.1 桌面本地工作区）
+
+**交互页面（page）**：
+插件提供的 HTML 页面，作为 `ui://` 资源由插件的 MCP 服务返回，在 ZCode 桌面端会话里渲染；经 `@modelcontextprotocol/ext-apps` 页面 SDK 与宿主通信。
+_Avoid_: 面板组件、webview
+
+**侧栏面板（surface）**：
+清单 `ui.surfaces` 声明的、会话侧栏里的常驻页面入口（如 rtk 输出查看器、headroom 压缩记录）。
+_Avoid_: 侧边栏、dock
+
+**内嵌卡片（inline card）**：
+附着在 MCP 工具结果上、随对话流展示的页面（如 vision_ask 的图片卡片），由工具 `_meta.ui.resourceUri` 指定。
+_Avoid_: 消息卡片、气泡
+
+**UI 服务（UI server）**：
+插件里为页面提供 `ui://` 资源与页面工具的 MCP 服务端（如 rtk-ui、headroom-ui、ocr-ui）。
+_Avoid_: UI 后台、页面服务进程
+
+**页面工具（app-only tool）**：
+只给交互页面调用、不进模型工具列表的工具，声明 `_meta.ui.visibility: ["app"]`。
+_Avoid_: 内部工具、私有工具
+
+**框选引用（region reference）**：
+vision 页面上框选图片区域，把选区信息作为下一轮对话的附加上下文交回（updateModelContext）。
+_Avoid_: 截图引用、区域截图
+
+**评审条目（finding）**：
+ocr 评审结果的一条结构化意见（文件、行号、严重级、摘要、详情），由 ocr_render_review 工具写入、评审面板展示。
+_Avoid_: 评审点、问题项
 
 ## 视觉识别（zcode-vision）
 
 **视觉代理（vision agent）**：
-主模型不支持图片输入时代它「看图」、并把识别文字注入对话的组件。
+主模型不支持图片输入时代它“看图”、并把识别文字注入对话的组件。
 _Avoid_: 识图器、图像模块
 
 **识别代理条目（proxy）**：
@@ -29,11 +59,11 @@ _Avoid_: 厂商（厂商指公司主体，不指配置条目）
 _Avoid_: 协议、接口类型（api.type 是配置字段名，不是术语）
 
 **视觉模型（vision model）**：
-支持图片输入的模型，界面以「视觉」徽标标示。
+支持图片输入的模型，界面以“视觉”徽标标示。
 _Avoid_: 看图模型
 
 **首选视觉模型（preferred vision model）**：
-跟随供应商时优先选用的该供应商视觉小模型，由插件内置的「供应商 → 视觉模型」映射表给出；映射未命中时用识别代理条目自己的模型。
+跟随供应商时优先选用的该供应商视觉小模型，由插件内置的“供应商 → 视觉模型”映射表给出；映射未命中时用识别代理条目自己的模型。
 _Avoid_: 优先模型、小模型
 
 **赠送额度级（trust-build）**：

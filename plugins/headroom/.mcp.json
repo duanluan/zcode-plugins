@@ -4,6 +4,12 @@
       "type": "stdio",
       "command": "node",
       "args": ["${ZCODE_PLUGIN_ROOT}/mcp/launch.mjs"]
+    },
+    "headroom-ui": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${ZCODE_PLUGIN_ROOT}/mcp/ui-server.mjs"],
+      "timeoutMs": 90000
     }
   }
 }

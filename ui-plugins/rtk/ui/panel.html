@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>rtk 输出记录</title>
+<style>
+  :root {
+    --bg: #fafafa; --panel: #ffffff; --text: #1f2328; --muted: #656d76;
+    --border: #d8dee4; --accent: #0969da; --hover: #f0f3f6;
+    --mono: ui-monospace, "Cascadia Code", Consolas, Menlo, monospace;
+  }
+  [data-theme="dark"] {
+    --bg: #14171a; --panel: #1c2126; --text: #e6edf3; --muted: #9198a1;
+    --border: #323941; --accent: #4493f8; --hover: #262d33;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 12px; background: var(--bg); color: var(--text);
+    font: 13px/1.5 -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  header { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+  header h1 { font-size: 14px; margin: 0; flex: none; }
+  header .count { color: var(--muted); flex: none; }
+  input[type="search"] {
+    flex: 1; min-width: 80px; padding: 4px 8px; border: 1px solid var(--border);
+    border-radius: 6px; background: var(--panel); color: var(--text);
+  }
+  button {
+    padding: 4px 10px; border: 1px solid var(--border); border-radius: 6px;
+    background: var(--panel); color: var(--text); cursor: pointer;
+  }
+  button:hover { background: var(--hover); }
+  #list { display: flex; flex-direction: column; gap: 4px; }
+  .row {
+    display: grid; grid-template-columns: 6.8em 1fr auto; gap: 8px; align-items: baseline;
+    padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px;
+    background: var(--panel); cursor: pointer; text-align: left; width: 100%;
+  }
+  .row:hover { background: var(--hover); }
+  .row .rtime { color: var(--muted); font-size: 12px; }
+  .row .cmd { font-family: var(--mono); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .meta { color: var(--muted); font-size: 12px; flex: none; }
+  #detail { display: none; flex-direction: column; gap: 8px; }
+  #detail .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  #detail .toolbar .hash { font-family: var(--mono); color: var(--accent); }
+  #detail pre {
+    margin: 0; padding: 10px; border: 1px solid var(--border); border-radius: 6px;
+    background: var(--panel); font-family: var(--mono); font-size: 12px; line-height: 1.45;
+    white-space: pre-wrap; word-break: break-all; max-height: 60vh; overflow: auto;
+  }
+  #msg, #truncnote { color: var(--muted); font-size: 12px; }
+  #err { color: #cf222e; font-size: 12px; white-space: pre-wrap; }
+  [data-theme="dark"] #err { color: #f85149; }
+</style>
+</head>
+<body>
+  <header>
+    <h1>rtk 输出记录</h1>
+    <span class="count" id="count"></span>
+    <input type="search" id="filter" placeholder="按命令或哈希过滤…" />
+    <button id="refresh">刷新</button>
+  </header>
+  <div id="err"></div>
+  <div id="msg"></div>
+  <section id="list"></section>
+  <section id="detail">
+    <div class="toolbar">
+      <button id="back">← 返回</button>
+      <span class="hash" id="d-hash"></span>
+      <span id="d-cmd" style="font-family: var(--mono); font-size: 12px;"></span>
+      <input type="search" id="d-grep" placeholder="正则筛选行…" style="width: 140px;" />
+      <button id="d-grep-btn">筛选</button>
+      <button id="d-full">完整输出</button>
+      <button id="d-omitted">被省略的行</button>
+      <button id="d-quote">引用到对话</button>
+      <button id="d-copy">复制</button>
+    </div>
+    <div class="hint" id="d-explain">默认显示压缩时被省略的行（对话里没显示的部分）；“完整输出”是压缩前的原始输出；输入正则可只看匹配的行。</div>
+    <div id="truncnote"></div>
+    <pre id="d-text"></pre>
+  </section>
+  <script>/*__APP_JS__*/</script>
+</body>
+</html>

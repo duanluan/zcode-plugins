@@ -12,7 +12,7 @@
 
 ### 2️⃣ 第 2 步：新建自定义供应商（界面操作，无法自动化）
 
-自带的「智谱」供应商走内部 OAuth、接入地址写死，**指不了代理**，所以必须新建。设置 → 模型设置 → 供应商列表「+ 添加供应商」：
+自带的“智谱”供应商走内部 OAuth、接入地址写死，**指不了代理**，所以必须新建。设置 → 模型设置 → 供应商列表“+ 添加供应商”：
 
 | 字段 | 填写值 | 说明 |
 |---|---|---|
@@ -22,7 +22,7 @@
 | API Key | 你的 GLM API Key | 代理原样转发，会员额度照常 |
 | 模型列表 | `glm-5.3`、`glm-5.3-flash` | 与直连时相同的模型 ID |
 
-保存并「已启用」，聊天时选该供应商下的模型即开始压缩。**自带「智谱」保留不动**——它就是回退开关，切回即"关闭"压缩。
+保存并“已启用”，聊天时选该供应商下的模型即开始压缩。**自带“智谱”保留不动**——它就是回退开关，切回即"关闭"压缩。
 
 ### 🚀 日常命令
 
@@ -30,7 +30,7 @@
 - `/hr-proxy start|stop|status|restart`：代理管理（日志 `~/.zcode-headroom-proxy.log`）；`/hr-proxy backend cpu|auto`：切换压缩设备；`/hr-proxy power battery|saver|off`：省电自动切换模式（battery 拔电即 CPU；saver 仅省电档 CPU）
 - `/hr dashboard`：浏览器实时节省报表；`/hr inspect`：对比原文与压缩结果；其余子命令原样传入
 
-**图形化设置页面在 [zcode-pro](https://github.com/duanluan/zcode-pro) 中**：用「ZCode Pro」启动 ZCode 后，右键侧边栏底部的设置按钮（齿轮）打开设置窗口，「Headroom」页管理压缩设备、省电切换与代理运行状态，以及 headroom 本体的检查更新与升级。
+**图形化设置页面在 [zcode-pro](https://github.com/duanluan/zcode-pro) 中**：用“ZCode Pro”启动 ZCode 后，右键侧边栏底部的设置按钮（齿轮）打开设置窗口，“Headroom”页管理压缩设备、省电切换与代理运行状态，以及 headroom 本体的检查更新与升级。
 
 ### ⚡ 压缩设备与省电
 
@@ -53,3 +53,11 @@ headroom 压缩模型默认自动选最快设备（CUDA/MPS 显卡优先，回�
 ### 🪟 Windows
 
 1.2.0 起原生支持 Windows，无需 sh/Git Bash，钩子也**无需预装 Node.js**：经 `hooks/runtime.cmd` 跨平台启动器拉起，自动找可用运行时——PATH 里的 node → 常见安装位置（nvm/volta/conda/scoop 等）→ ZCode 自带运行时（ELECTRON_RUN_AS_NODE，桌面版自带、零依赖）。MCP 取回工具（`headroom mcp serve`）需 PATH 里有 node：缺失时该工具自动缺席，代理与压缩本体不受影响。Windows 侧的代理生命周期（detached 启动、taskkill 树杀 + 按端口兜底）、状态输出、电源监视器（`power-watch.mjs`）均为 node 原生实现，Linux/macOS 上入口内部仍委托原 `ensure-proxy.sh`，行为不变。headroom 本体装法：zcode-pro 面板一键安装（pip 通道），或手动 `py -m pip install "headroom-ai[all]"`；无 systemd，开机自启依赖会话启动钩子兜底（或自行设计划任务）。
+
+### 📊 压缩记录面板（ZCode ≥ 3.15.1 桌面端）
+
+活跃会话右侧面板区“headroom 压缩记录”：展示压缩节省总览（累计/今天/近 7 天/近 30 天的节省 token、费用与调用次数，统计覆盖全部模型，来自 `headroom savings` 台账；台账覆盖期短于 30 天时近 30 天卡与累计相同会自动隐藏）、近 14 天每日节省柱状图（每根柱子带日期，悬停或点击看当天明细，默认显示峰值日）、压缩率（整体=总省/总原，与 headroom 官方面板同口径；单次最好）、按模型分布（只有一个有效模型时自动隐藏；逐条聚合 `savings_events` 事件账本），并可按哈希取回压缩前的原文——“最近被压缩的内容”列表点击即可查看压缩前原文（约 30 分钟内有效，过期自动消失，显示哈希前 8 位），或把对话压缩标记“[N items compressed... hash=xxx]”里的 xxx 填入取回框。面板由独立的 headroom-ui 服务提供（经现有单例桥调用 headroom_retrieve，不改动桥本身），原有 MCP 工具不受影响。
+
+### 🔀 多供应商压缩路由（/hr-join）
+
+任意自定义供应商（中转站/官方，如 MiMo、聚合中转）都能接入压缩；没有现成供应商也能一键新建（GLM 场景自动复制官方模型清单）：`/hr-join` 从供应商配置自动读出上游地址与协议格式，记录映射后把它的 baseUrl 统一改为 `http://127.0.0.1:8787`；本地路由器按请求里的 **API key**（只存哈希）识别供应商，转给对应 headroom 实例压缩后把鉴权原样透传给真实上游。`/hr-join off` 随时还原原始 baseUrl。兼容边界：anthropic 格式任意上游可用；openai 格式需上游为 /v1 形态（GLM 官方 openai 接口是 /v4 形态，GLM 请用 anthropic 地址接入）。同一上游的多个供应商共享实例；不接入的供应商不受任何影响。

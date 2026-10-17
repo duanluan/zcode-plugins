@@ -397,14 +397,27 @@ export function providerTables() {
   return list;
 }
 
+// headroom 压缩路由（/hr-join）的注册表：供应商接入后 baseUrl 统一指向 127.0.0.1:8787，
+// 地址里不再有 /anthropic 之类的协议线索，真实格式（anthropic/openai）记录在注册表里。
+// 同一查表逻辑在 zcode-pro 的 helper.mjs（headroomFormatOf）与 hr-join 接入规则各有
+// 一份，改 headroom.json 的 providers 结构时三处同改
+function headroomFormatOf(providerId) {
+  const hit = ((readJson(path.join(HOME, '.zcode', 'headroom.json')) || {}).providers || [])
+    .find((p) => p && p.id === providerId);
+  const f = String(hit?.format || '').toLowerCase();
+  return f === 'anthropic' || f === 'openai' ? f : '';
+}
+
 // api.type（接口类型）缺失时的格式兜底：代理条目下拉框的 format 优先，其次按接口地址
-// 推断（路径含 /anthropic 视为 Anthropic 兼容），最后按 openai（与 callProxy 的缺省一致）。
+// 推断（路径含 /anthropic 视为 Anthropic 兼容）；地址推不出（典型：指向 headroom 路由器
+// 127.0.0.1:8787）时查上面的注册表，仍没有才按 openai（与 callProxy 的缺省一致）。
 // 模板向导创建的供应商可能不写 api.type（如 Xiaomi MiMo），缺字段不该直接失败。
-function formatFromHint(explicit, baseUrl) {
+function formatFromHint(explicit, baseUrl, providerId) {
   const f = String(explicit || '').trim().toLowerCase();
   if (f === 'anthropic' || f === 'anthropic-messages') return 'anthropic';
   if (f === 'openai') return 'openai';
-  return /\/anthropic(\/|$)/i.test(String(baseUrl || '')) ? 'anthropic' : 'openai';
+  if (/\/anthropic(\/|$)/i.test(String(baseUrl || ''))) return 'anthropic';
+  return headroomFormatOf(providerId) || 'openai';
 }
 
 // 首选视觉模型映射表（ADR-0001）：跟随供应商时优先使用的视觉小模型。
@@ -593,7 +606,7 @@ export async function resolveProviderRef(ref, sessionId, fallbackFormat) {
   return {
     baseUrl: String(hit.baseURL),
     apiKey: String(hit.apiKey).trim(),
-    format: kind ? (isAnthropic ? 'anthropic' : 'openai') : formatFromHint(fallbackFormat, hit.baseURL),
+    format: kind ? (isAnthropic ? 'anthropic' : 'openai') : formatFromHint(fallbackFormat, hit.baseURL, hit.id),
     providerName: hit.name,
     providerId: hit.id,
     preferredModel: preferredModelOf(hit),

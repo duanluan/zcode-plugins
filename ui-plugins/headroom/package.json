@@ -1,0 +1,6 @@
+{
+  "name": "@duanluan/plugin-headroom",
+  "version": "1.3.0",
+  "private": true,
+  "description": "接入 Headroom 本地压缩代理：MCP 桥 + 代理守护 + 电源切换钩子。"
+}

@@ -2,3 +2,6 @@
 .zcode/
 .zcodeignore
 tmp/
+# 根级开发产物（注意：plugins/*/dist 是要提交的市场产物，不能被这条盖住）
+/node_modules/
+/dist/

@@ -56,6 +56,8 @@ systemctl --user daemon-reload && systemctl --user enable --now headroom-proxy
 
 用户配置了 CPU 压缩时（`~/.zcode/headroom.json` 的 `kompressBackend` 非 `"auto"`），在 `[Service]` 段再加一行 `Environment=HEADROOM_KOMPRESS_BACKEND=<该值>` 后重跑 `daemon-reload && restart headroom-proxy`。**省电自动切换（`powerSaveCpu` 为 `battery`/`saver`）无需写进单元**：插件的电源监视器会在需要时经 `systemctl --user set-environment` + `restart` 切换（若单元里手写了 `HEADROOM_KOMPRESS_BACKEND`，请把配置文件的 `kompressBackend` 设成同值，避免监视器反复改写）。
 
+**已接入或计划接入多供应商路由（/hr-join）的机器不要建这个 systemd 服务**：路由器接管 8787 后，systemd 的自动重启会反复拉起旧单实例、和路由器抢 8787 端口。多供应商模式由插件每次会话自动拉起路由器与实例（SessionStart 钩子），不需要 systemd。
+
 systemd 不可用（无 systemd 用户会话）时退回插件脚本（自动带上 CPU/省电配置与电源监视器）：
 
 ```bash
@@ -76,13 +78,24 @@ sleep 2; headroom doctor
 ```
 
 - `doctor` 会检查代理与客户端路由状态；有报错先看 `~/.zcode-headroom-proxy.log`
+- 多供应商路由模式下 `doctor` 可能报 "proxy not reachable"——它按单实例方式探测 8787，而 8787 已被路由器接管。此时以 `hr-multi.mjs status` 或 `curl -s http://127.0.0.1:8787/livez`（应回 `hr-multi-router`）为准，不要据此回退
 - 连通性抽查：`curl -s http://127.0.0.1:8787/livez | head -c 200`
 
-## 第 4 步：新建自定义供应商（必须用户在界面操作，逐步给出）
+## 第 4 步：供应商接入（经 /hr-join；"已指向 8787"不等于"已接入"）
 
-> headroom 官方支持 ZCode，但 ZCode 自带的「智谱」供应商走内部 OAuth、接入地址写死，**无法改指代理**——所以必须新建一个自定义供应商。rtk/headroom 的全局提示词管"怎么压"，这一步管"流量从哪走"，缺它压缩为零。
+> headroom 官方支持 ZCode，但 ZCode 自带的「智谱」供应商走内部 OAuth、接入地址写死，**无法改指代理**——压缩流量必须走自定义供应商。rtk/headroom 的全局提示词管"怎么压"，这一步管"流量从哪走"，缺它压缩为零。
 
-在 ZCode 中：**设置 → 模型设置 → 供应商列表底部「+ 添加供应商」**，逐项填写（与已验证可用的配置一致）：
+**判定"已接入"的唯一标准：`~/.zcode/headroom.json` 的 providers 里注册了该供应商的映射。** baseURL 已经是 127.0.0.1:8787 不算——那可能只是旧单实例代理时代的存量配置，路由器接管 8787 后没有注册映射的 key 一律 502 断流。
+
+先读 `~/.zcode/v2/config.json` 的 provider 映射、`~/.zcode/v2/provider_config.json`（`config.providerOrder` 是界面可见名单、`providerConfigRules.providerRules` 存各供应商的密钥与地址覆盖——**模板供应商如 Xiaomi MiMo 只在这里有定义**）与 `~/.zcode/headroom.json`，对照后按三种情形处理（**供应商是否还活着以 providerOrder 为准**：不在其中的残留定义不列入、不动；**可并存，逐一走完才算本步完成**）：
+
+- **情形 A：一个自定义供应商都没有** → 按 `/hr-join` 的"自动创建供应商"一节新建（GLM 一键场景：kind=anthropic、上游 `https://open.bigmodel.cn/api/anthropic`、模型清单整体复制 builtin:bigmodel 的 models 映射，用户只给名称和 key）。自动创建失败（结构不符/被应用改写）才走下面的界面手建。
+- **情形 B：自定义供应商已指向 8787、但 headroom.json 里没有它的映射**（旧单实例代理时代的存量）→ 按 `/hr-join` 的"旧 GLM 单实例迁移"一节**一次性全部注册**（默认上游 `https://open.bigmodel.cn/api/anthropic`，需向用户逐个核实），然后 `ensure-proxy.mjs stop` → `hr-multi.mjs ensure` 让路由器接管 8787。**硬性约束：指 8787 的必须一次全部注册，漏一个它的所有请求就 502。**
+- **情形 C：自定义供应商直连厂商 URL**（mimo、中转站等，完全没经过压缩）→ **逐个询问用户要不要接入，不许静默跳过**；要接的按 `/hr-join` 无参流程做：判定格式（anthropic 任意形态可用；openai 须 /v1 形态）、注册映射（记录 origBaseURL 以便还原）、改 baseURL 为 8787、`hr-multi.mjs ensure`、用真实 key 实测一条消息。
+
+处理完在汇报里列出三张清单：已接入 / 待接入（用户暂缓）/ 用户放弃。
+
+界面手建回退（仅情形 A 自动创建失败时），在 ZCode 中：**设置 → 模型设置 → 供应商列表底部「+ 添加供应商」**，逐项填写（与已验证可用的配置一致）：
 
 1. **名称**：`BigModel`（自定义供应商区内，随意，如 `BigModel-Headroom`）
 2. **API 格式**：选 **Anthropic Messages (/v1/messages)** ——不要选 Chat Completions（经 headroom 转发保留 `/v1` 前缀，bigmodel 无该路径，必 404）
@@ -100,6 +113,7 @@ sleep 2; headroom doctor
 ## 第 6 步：汇报
 
 - 当前代理端口与上游地址、日志位置（`~/.zcode-headroom-proxy.log`）
+- 供应商接入状态三张清单（已接入 / 待接入 / 用户放弃）；直连厂商未接入的供应商（如 mimo、中转站）要点名提示"可用 /hr-join 接入压缩"
 - 节省查看：`/hr-status` 或 `headroom dashboard`（浏览器实时报表）
 - 回退方式：在 ZCode 模型设置里切回自带「智谱」供应商即可；彻底停代理用 `/hr-proxy stop`
 
