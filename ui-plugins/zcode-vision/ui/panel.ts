@@ -16,7 +16,7 @@ interface AskResult {
 let app: App;
 let latest: AskResult | null = null;
 let region: { x: number; y: number; w: number; h: number } | null = null;
-let imageLoaded = false; // 展开时才拉图，收着不看的识别结果不浪费一次图片请求
+let imageLoaded = false; // 图片区展开时才拉图，默认收着不看的不浪费一次请求
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -25,12 +25,11 @@ function showError(text: string) {
   $("err").textContent = text;
 }
 
-// 识别全文与图片默认收起，只留一行问题；新结果到达时回到收起态
-function setCollapsed(collapsed: boolean) {
-  // 收起与否只由 #card.collapsed 类决定（CSS 控制 #detail 显隐），不另改 style
-  $("card").classList.toggle("collapsed", collapsed);
-  const toggle = $("toggle");
-  toggle.textContent = collapsed ? "展开" : "收起";
+// 图片与框选引用区默认收起（问答文字保持直接可读）；新结果到达时回到收起态
+function setToolsCollapsed(collapsed: boolean) {
+  $("tools").classList.toggle("collapsed", collapsed);
+  const toggle = $("tools-toggle");
+  toggle.textContent = collapsed ? "显示图片与框选引用" : "收起图片与框选";
   toggle.setAttribute("aria-expanded", String(!collapsed));
   if (!collapsed && !imageLoaded) void loadImage();
 }
@@ -45,14 +44,13 @@ function render() {
   $("a").innerHTML = renderMarkdown(latest.desc || "");
   $("path").textContent = latest.image_path || "";
   imageLoaded = false;
-  setCollapsed(true);
+  setToolsCollapsed(true);
 }
 
 async function loadImage() {
   if (!latest?.image_path) return;
   try {
     const data = await callToolJson<{ dataUrl: string }>(app, "vision_image_data", { image_path: latest.image_path });
-    imageLoaded = true;
     $<HTMLImageElement>("img").src = data.dataUrl;
   } catch (e) {
     $("err").textContent = `图片加载失败：${(e as Error).message || e}`;
@@ -173,7 +171,7 @@ async function main() {
   });
   setupSelection();
   $("ref").addEventListener("click", () => void reference());
-  $("toggle").addEventListener("click", () => setCollapsed(!$("card").classList.contains("collapsed")));
+  $("tools-toggle").addEventListener("click", () => setToolsCollapsed($("tools").classList.contains("collapsed")));
   render();
 }
 

@@ -20,13 +20,8 @@
     font: 13px/1.5 -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   }
   .qa { margin-bottom: 10px; }
-  .head { display: flex; align-items: flex-start; gap: 8px; }
-  .head .q { color: var(--muted); margin: 0; flex: 1; min-width: 0; }
-  .head .q b { color: var(--text); font-weight: 600; }
-  /* 收起时问题只显示一行，识别全文与图片藏在展开区里 */
-  #card.collapsed .head .q { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  #card.collapsed #detail { display: none; }
-  #toggle { flex-shrink: 0; }
+  .qa .q { color: var(--muted); margin-bottom: 4px; }
+  .qa .q b { color: var(--text); font-weight: 600; }
   .qa .a { word-break: break-word; }
   .qa .a h3 { font-size: 13px; margin: 8px 0 4px; }
   .qa .a p { margin: 4px 0; }
@@ -36,6 +31,9 @@
     font-family: var(--mono); font-size: 12px;
     background: rgba(125, 125, 125, 0.15); border-radius: 4px; padding: 0 4px;
   }
+  /* 图片与框选引用区默认收起：问答文字直接可读，显隐只由 .collapsed 类控制 */
+  #tools.collapsed { display: none; }
+  #tools { margin-top: 8px; }
   .imagewrap {
     position: relative; display: inline-block; max-width: 100%;
     border: 1px solid var(--border); border-radius: 6px; overflow: hidden; line-height: 0;
@@ -61,15 +59,13 @@
 </head>
 <body>
   <div id="placeholder" class="hint">等待 vision_ask 调用后显示图片与问答。</div>
-  <section id="card" class="collapsed" style="display:none;">
-    <div class="head">
+  <section id="card" style="display:none;">
+    <div class="qa">
       <div class="q">问：<b id="q"></b> <span id="meta" class="hint"></span></div>
-      <button id="toggle" aria-expanded="false">展开</button>
+      <div class="a" id="a"></div>
     </div>
-    <div id="detail">
-      <div class="qa">
-        <div class="a" id="a"></div>
-      </div>
+    <button id="tools-toggle" aria-expanded="false">显示图片与框选引用</button>
+    <div id="tools" class="collapsed">
       <div class="imagewrap" id="wrap">
         <img id="img" alt="被识别的图片" />
         <div id="sel"></div>

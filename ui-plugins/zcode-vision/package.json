@@ -1,6 +1,6 @@
 {
   "name": "@duanluan/plugin-zcode-vision",
-  "version": "1.7.2",
+  "version": "1.7.3",
   "private": true,
   "description": "图片视觉代理：主模型不支持图片输入时代为识别。"
 }
