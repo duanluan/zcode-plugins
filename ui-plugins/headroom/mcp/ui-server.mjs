@@ -13,6 +13,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { findHeadroom } from './headroom-bin.mjs';
+import { statusData } from '../hooks/hr-multi.mjs';
 
 const SERVER_INFO = { name: 'headroom-ui', version: '1.0.0' };
 const PROTOCOL_VERSION = '2024-11-05';
@@ -23,6 +24,15 @@ const PLUGIN_ROOT = join(MCP_DIR, '..');
 const APP_ONLY = { ui: { visibility: ['app'] } };
 
 const TOOLS = [
+  {
+    name: 'hr_router_status',
+    description: '压缩路由状态：路由器端口与运行状态、各压缩实例（端口/格式/上游/供应商/运行状态）与压缩设备配置。providers 未接入时返回 legacy。',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+    _meta: APP_ONLY,
+  },
   {
     name: 'hr_savings_overview',
     description: '压缩节省总览（包装 headroom savings --json）：累计与近期节省的 token、费用、调用次数。',
@@ -163,6 +173,13 @@ async function bridgeReady() {
 process.on('exit', () => { if (bridgeProc) { try { bridgeProc.kill(); } catch { /* ignore */ } } });
 
 // —— 工具实现 ——
+
+// 压缩路由状态：复用 hr-multi 的探测（同源单例：探测逻辑只维护一份）。
+// 直接 import 而非子进程跑 status，避免把人读输出再解析一遍
+async function routerStatus() {
+  const data = await statusData();
+  return { content: [{ type: 'text', text: 'ok' }], structuredContent: data };
+}
 
 async function savingsOverview(args) {
   const bin = findHeadroom();
@@ -307,6 +324,7 @@ function dailySavings(args) {
 }
 
 async function handleCall(name, args) {
+  if (name === 'hr_router_status') return routerStatus();
   if (name === 'hr_savings_overview') return savingsOverview(args);
   if (name === 'hr_recent_compressions') return recentCompressions();
   if (name === 'hr_daily_savings') return dailySavings(args);

@@ -59,6 +59,8 @@
   </header>
   <div id="msg">加载中…</div>
   <div id="err"></div>
+  <div class="section-title" style="margin-top:4px;">压缩路由</div>
+  <div class="router" id="router"></div>
   <div class="cards" id="cards"></div>
   <div class="hint" id="modelnote"></div>
   <div class="section-title">每日节省（近 14 天）</div>
@@ -77,6 +79,22 @@
   <div id="recent"></div>
   <style>
   #recent { display: flex; flex-direction: column; gap: 4px; }
+  .router { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); margin-bottom: 12px; }
+  .router .rhead { font-size: 12px; display: flex; align-items: center; gap: 6px; }
+  .router .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--muted); }
+  .router .dot.on { background: #1a7f37; }
+  .router .dot.off { background: #cf222e; }
+  [data-theme="dark"] .router .dot.on { background: #3fb950; }
+  [data-theme="dark"] .router .dot.off { background: #f85149; }
+  .router .irow { display: flex; align-items: baseline; gap: 8px; font-size: 12px; min-width: 0; }
+  .router .iport { flex: none; font-family: var(--mono); color: var(--muted); }
+  .router .iurl { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .router .inames { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 11px; }
+  .router .ist { flex: none; white-space: nowrap; }
+  .router .ist.on { color: #1a7f37; }
+  .router .ist.off { color: #cf222e; }
+  [data-theme="dark"] .router .ist.on { color: #3fb950; }
+  [data-theme="dark"] .router .ist.off { color: #f85149; }
   .chart {
     display: flex; align-items: stretch; gap: 3px; height: 110px;
     padding: 8px 10px 4px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel);

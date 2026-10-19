@@ -1,5 +1,5 @@
-// headroom 压缩记录面板：压缩节省总览（savings 台账）+ 按哈希取回压缩前的原文。
-// 数据经 headroom-ui 服务的 hr_savings_overview / hr_retrieve 工具读取。
+// headroom 压缩记录面板：压缩路由状态 + 压缩节省总览（savings 台账）+ 按哈希取回压缩前的原文。
+// 数据经 headroom-ui 服务的 hr_router_status / hr_savings_overview / hr_retrieve 工具读取。
 
 import type { App } from "@modelcontextprotocol/ext-apps";
 import { callToolJson, callToolText, connectPage, escapeHtml, fmtBigTokens, fmtInt, updateContextSafe } from "../../../ui-common/zcode-page";
@@ -46,6 +46,21 @@ interface CompressionInfo {
   samples: number;
 }
 
+interface RouterInstance {
+  port: number;
+  format: string;
+  upstream: string;
+  up: boolean;
+  providers: string[];
+}
+
+interface RouterStatus {
+  legacy?: boolean;
+  router?: { port: number; up: boolean };
+  instances?: RouterInstance[];
+  backend?: string;
+}
+
 const WINDOW_LABELS: Record<string, string> = {
   today: "今天",
   last_7_days: "近 7 天",
@@ -71,6 +86,31 @@ function cardHtml(label: string, w: SavingsWindow): string {
 function sameWindow(a?: SavingsWindow, b?: SavingsWindow): boolean {
   if (!a || !b) return false;
   return a.tokens_saved === b.tokens_saved && a.cost_usd === b.cost_usd && a.calls === b.calls;
+}
+
+// —— 压缩路由状态：路由器 + 各实例（hr_router_status 工具，探测逻辑与钩子同源）——
+async function loadRouter() {
+  const box = $("router");
+  try {
+    const data = await callToolJson<RouterStatus>(app, "hr_router_status", {});
+    if (data.legacy) {
+      box.innerHTML = `<div class="hint" style="margin:2px;">还没有接入任何供应商（旧单实例模式）；用 /hr-join 接入后这里显示路由与实例。</div>`;
+      return;
+    }
+    const r = data.router || { port: 0, up: false };
+    const insts = data.instances || [];
+    const rows = insts
+      .map((it) => `<div class="irow">
+  <span class="iport">:${it.port}</span>
+  <span class="iurl">${escapeHtml(it.format)} → ${escapeHtml(it.upstream)}</span>
+  <span class="inames">${escapeHtml(it.providers.join("、"))}</span>
+  <span class="ist ${it.up ? "on" : "off"}">${it.up ? "运行中" : "未运行"}</span>
+</div>`)
+      .join("");
+    box.innerHTML = `<div class="rhead"><span class="dot ${r.up ? "on" : "off"}"></span>127.0.0.1:${r.port} ${r.up ? "运行中" : "未运行"} · ${insts.length} 个实例</div>${rows}`;
+  } catch (e) {
+    box.innerHTML = `<div class="hint" style="margin:2px;">路由状态不可用：${escapeHtml(String((e as Error).message || e))}</div>`;
+  }
 }
 
 async function loadOverview() {
@@ -306,11 +346,12 @@ function rFlash(msg: string) {
 
 async function main() {
   app = await connectPage("headroom-panel", "1.0.0");
-  $("refresh").addEventListener("click", () => { void loadOverview(); void loadRecent(); void loadCharts(); });
+  $("refresh").addEventListener("click", () => { void loadRouter(); void loadOverview(); void loadRecent(); void loadCharts(); });
   $("go").addEventListener("click", () => void retrieve());
   $("r-copy").addEventListener("click", () => void copyRetrieved());
   $("r-quote").addEventListener("click", () => void quoteRetrieved());
   $<HTMLInputElement>("hash").addEventListener("keydown", (e) => { if (e.key === "Enter") void retrieve(); });
+  void loadRouter();
   await loadOverview();
   void loadCharts();
   await loadRecent();

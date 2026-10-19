@@ -21,7 +21,7 @@ import { spawn, execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import http from 'node:http';
 import net from 'node:net';
-import { closeSync, existsSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, openSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -264,20 +264,132 @@ async function doStop() {
   return 0;
 }
 
-async function doStatus() {
+// —— 电源状态与省电档检测（与 headroom-lib.sh hr_power_flags / hr_saver_detect
+// 同语义的 Node 实现）：multi 模式没有常驻监视器，但 status 仍要如实报告当前电源
+// 与检测能力——ZCode Pro 面板的“电源 / 省电模式检测”两栏读这两行输出
+const shOut = (cmd, args) => new Promise((resolve) => {
+  execFile(cmd, args, { timeout: 4000 }, (err, stdout) => resolve(err ? null : String(stdout || '')));
+});
+
+async function winPowerFlags() {
+  const out = await shOut('powershell.exe', ['-NoProfile', '-Command',
+    'Add-Type -AssemblyName System.Windows.Forms; $p=[System.Windows.Forms.SystemInformation]::PowerStatus; $s="Indeterminate"; try{$s=[string]$p.PowerSavingMode}catch{}; "PL=$($p.PowerLineStatus);SAVER=$s;SCHEME=$(powercfg /getactivescheme)"']);
+  if (out == null) return null;
+  const f = [];
+  if (/SAVER=True/.test(out) || out.includes('a1841308-3541-4fab-bc81-f71556f20b4a')) f.push('saver');
+  if (/PL=Offline/.test(out)) f.push('battery');
+  return f;
+}
+
+// → { mode: 'ac'|'battery'|'saver'|'saver+battery', saverDetect: 'ok'|'missing'|'broken' }
+async function powerInfo() {
+  if (process.platform === 'win32') {
+    const f = (await winPowerFlags()) || [];
+    const mode = f.includes('saver') && f.includes('battery') ? 'saver+battery' : (f[0] || 'ac');
+    return { mode, saverDetect: 'ok' };
+  }
+  if (process.platform === 'darwin') {
+    const f = [];
+    const g = await shOut('pmset', ['-g']);
+    if (/^\s*lowpowermode\s+1/m.test(g || '')) f.push('saver');
+    const b = await shOut('pmset', ['-g', 'batt']);
+    if (/Battery Power/.test(b || '')) f.push('battery');
+    return { mode: f.includes('saver') && f.includes('battery') ? 'saver+battery' : (f[0] || 'ac'), saverDetect: 'ok' };
+  }
+  // Linux：powerprofilesctl（其 shebang 的 python3 可能被用户级 Python 劫持缺 gi 崩溃，
+  // 失败用系统 Python 重试——hr_ppd_get 同款）+ /sys 电池放电状态
+  let saverDetect = 'missing';
+  let ppd = null;
+  const which = await shOut('sh', ['-c', 'command -v powerprofilesctl']);
+  if (which && which.trim()) {
+    saverDetect = 'broken';
+    ppd = await shOut('powerprofilesctl', ['get']);
+    if (ppd == null) ppd = await shOut('/usr/bin/python3', [which.trim(), 'get']);
+    if (ppd != null) saverDetect = 'ok';
+  }
+  const f = [];
+  if (ppd && ppd.includes('power-saver')) f.push('saver');
+  let batSeen = false;
+  try {
+    for (const name of readdirSync('/sys/class/power_supply')) {
+      if (!/^BAT/.test(name)) continue;
+      batSeen = true;
+      try {
+        if (readFileSync(`/sys/class/power_supply/${name}/status`, 'utf8').trim() === 'Discharging') { f.push('battery'); break; }
+      } catch { /* ignore */ }
+    }
+  } catch { /* ignore */ }
+  // WSL 看不到主机电池：改查 Windows 侧
+  if (!batSeen) {
+    const win = await winPowerFlags();
+    if (win) return { mode: win.includes('saver') && win.includes('battery') ? 'saver+battery' : (win[0] || 'ac'), saverDetect };
+  }
+  return { mode: f.includes('saver') && f.includes('battery') ? 'saver+battery' : (f[0] || 'ac'), saverDetect };
+}
+
+// 结构化状态（不打印）：ensure-proxy 的 status 输出与 headroom-ui 面板的
+// hr_router_status 工具共用这一份探测，避免两处各自维护端口/分组判定。
+// providers 未配置时返回 { legacy: true }，调用方各自表达。
+export async function statusData() {
   const cfg = readConfig();
   if (!Array.isArray(cfg.providers) || cfg.providers.length === 0) {
+    return { legacy: true };
+  }
+  const routerPort = (cfg.router && cfg.router.port) || 8787;
+  const st = readState();
+  const plans = await plan(cfg, st);
+  const instances = [];
+  for (const pl of plans) {
+    instances.push({
+      port: pl.port,
+      format: pl.format,
+      upstream: pl.upstream,
+      up: await portUp(pl.port),
+      providers: pl.providers.map((p) => p.name || p.id),
+    });
+  }
+  return {
+    legacy: false,
+    router: { port: routerPort, up: await portUp(routerPort) },
+    instances,
+    backend: cfg.kompressBackend || 'auto',
+    powerSave: cfg.powerSaveCpu || 'off',
+    watchInterval: Math.max(10, Number(cfg.powerWatchInterval) || 60),
+    managed: Object.keys(st.instances || {}).length > 0,
+    ...(await powerInfo()),
+  };
+}
+
+async function doStatus() {
+  const data = await statusData();
+  if (data.legacy) {
     console.log('legacy');
     return 3;
   }
-  const routerPort = (cfg.router && cfg.router.port) || 8787;
-  const plans = await plan(cfg, readState());
-  console.log(`路由器 127.0.0.1:${routerPort}：${(await portUp(routerPort)) ? '运行中' : '未运行'}`);
-  for (const pl of plans) {
-    const up = await portUp(pl.port);
-    const names = pl.providers.map((p) => p.name || p.id).join('、');
-    console.log(`  实例 :${pl.port} ${pl.format} → ${pl.upstream} ${up ? '运行中' : '未运行'} | 供应商：${names}`);
+  const { router, instances } = data;
+  // 人读摘要
+  console.log(`路由器 127.0.0.1:${router.port}：${router.up ? '运行中' : '未运行'}`);
+  for (const it of instances) {
+    const names = it.providers.join('、');
+    console.log(`  实例 :${it.port} ${it.format} → ${it.upstream} ${it.up ? '运行中' : '未运行'} | 供应商：${names}`);
   }
+  // —— 机器可读字段：字段名与单实例模式（ensure-proxy 的 status）对齐，已发布的
+  // ZCode Pro（parseHeadroomStatus 只认这些字段）无需更新即可恢复“运行中”判定；
+  // instance 行是给新版 ZCode Pro 的实例列表（旧版忽略未知行）。多实例模式没有独立
+  // 电源监视器（切后端走 backend 动作重启实例），watcher 恒为 stopped，
+  // power-mode / saver-detect 无来源、不输出（面板显示 —）
+  console.log(`proxy: ${router.up ? 'up' : 'down'} (127.0.0.1:${router.port})`);
+  console.log(`managed-by-plugin: ${data.managed ? 'yes' : 'no'}`);
+  console.log(`instances: ${instances.length}`);
+  for (const it of instances) {
+    console.log(`instance: ${it.port} ${it.format} ${it.upstream} ${it.up ? 'up' : 'down'} ${it.providers.join('、')}`);
+  }
+  console.log(`current-backend: ${data.backend}`);
+  console.log(`desired-backend: ${data.backend}`);
+  console.log(`power-mode: ${data.mode}`);
+  console.log(`power-save-auto-cpu: ${data.powerSave} (interval ${data.watchInterval}s)`);
+  console.log(`saver-detect: ${data.saverDetect}`);
+  console.log('watcher: stopped');
   return 0;
 }
 
