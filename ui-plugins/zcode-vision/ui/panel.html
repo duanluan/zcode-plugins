@@ -31,27 +31,22 @@
     font-family: var(--mono); font-size: 12px;
     background: rgba(125, 125, 125, 0.15); border-radius: 4px; padding: 0 4px;
   }
-  /* 图片与框选引用区默认收起：问答文字直接可读，显隐只由 .collapsed 类控制 */
+  .qa .a table { border-collapse: collapse; margin: 6px 0; }
+  .qa .a th, .qa .a td { border: 1px solid var(--border); padding: 3px 8px; text-align: left; }
+  /* 图片区默认收起：问答文字直接可读，显隐只由 .collapsed 类控制 */
   #tools.collapsed { display: none; }
   #tools { margin-top: 8px; }
   .imagewrap {
-    position: relative; display: inline-block; max-width: 100%;
+    display: inline-block; max-width: 100%;
     border: 1px solid var(--border); border-radius: 6px; overflow: hidden; line-height: 0;
-    user-select: none; cursor: crosshair;
   }
   .imagewrap img { max-width: 100%; max-height: 48vh; }
-  #sel {
-    position: absolute; border: 2px solid var(--accent); background: rgba(9, 105, 218, 0.12);
-    display: none; pointer-events: none; border-radius: 2px;
-  }
-  .actions { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
   button {
     padding: 4px 10px; border: 1px solid var(--border); border-radius: 6px;
     background: var(--panel); color: var(--text); cursor: pointer;
   }
   button:hover { background: var(--hover); }
   .hint { color: var(--muted); font-size: 12px; }
-  #status { font-size: 12px; color: var(--accent); }
   #err { color: #cf222e; font-size: 12px; white-space: pre-wrap; margin-top: 6px; }
   [data-theme="dark"] #err { color: #f85149; }
   .path { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-top: 6px; word-break: break-all; }
@@ -64,16 +59,10 @@
       <div class="q">问：<b id="q"></b> <span id="meta" class="hint"></span></div>
       <div class="a" id="a"></div>
     </div>
-    <button id="tools-toggle" aria-expanded="false">显示图片与框选引用</button>
+    <button id="tools-toggle" aria-expanded="false">显示图片</button>
     <div id="tools" class="collapsed">
       <div class="imagewrap" id="wrap">
         <img id="img" alt="被识别的图片" />
-        <div id="sel"></div>
-      </div>
-      <div class="actions">
-        <button id="ref">引用选区到对话</button>
-        <span class="hint">在图上拖动框选；不框选则引用整图。引用后接着提问即可。</span>
-        <span id="status"></span>
       </div>
       <div class="path" id="path"></div>
     </div>

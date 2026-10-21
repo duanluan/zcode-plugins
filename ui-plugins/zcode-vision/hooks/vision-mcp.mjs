@@ -10,11 +10,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { askImage, loadConfig } from './vision-lib.mjs';
+import { askImage, cardHeartbeat, cardUiAllowed, loadConfig, log, readSandboxRegistry, writeSandboxRegistry } from './vision-lib.mjs';
 
 const SERVER_INFO = { name: 'zcode-vision', version: '1.1.0' };
 const PROTOCOL_VERSION = '2024-11-05';
 const PANEL_URI = 'ui://zcode-vision/panel.html';
+const VISION_ASK_META = { ui: { resourceUri: PANEL_URI, visibility: ['model', 'app'] } }; // 原始挂卡配置（tools/list 动态摘挂的基准）
 const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const TOOLS = [
@@ -32,12 +33,19 @@ const TOOLS = [
       },
       required: ['image_path', 'question'],
     },
-    _meta: {
-      ui: {
-        resourceUri: PANEL_URI,
-        visibility: ['model', 'app'],
+    _meta: VISION_ASK_META,
+  },
+  {
+    name: 'vision_card_heartbeat',
+    description: '识图卡片页面的沙箱名额心跳（插件内部使用）：上报本卡片沙箱仍活跃，领回闲置释放时长与超预算淘汰指令。模型无需调用。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sandboxId: { type: 'string', description: '页面自造的随机标识（每张卡片一个，注册表只要求活着且可区分）' },
       },
+      required: ['sandboxId'],
     },
+    _meta: { ui: { visibility: ['app'] } },
   },
   {
     name: 'vision_image_data',
@@ -54,7 +62,7 @@ const TOOLS = [
 ];
 
 const RESOURCES = [
-  { uri: PANEL_URI, name: 'vision 图片卡片', mimeType: 'text/html;profile=mcp-app', description: '显示被识别的图片与问答，支持框选区域引用到对话' },
+  { uri: PANEL_URI, name: 'vision 图片卡片', mimeType: 'text/html;profile=mcp-app', description: '显示被识别的图片与问答（图片默认收起，点“显示图片”展开查看；追问直接在对话里提）' },
 ];
 
 const MIME_BY_EXT = {
@@ -89,6 +97,14 @@ async function handleCall(name, args) {
       structuredContent: { image_path: file, question, desc, used, cached },
     };
   }
+  if (name === 'vision_card_heartbeat') {
+    const sandboxId = String(args?.sandboxId || '').trim();
+    if (!sandboxId) return { content: [{ type: 'text', text: 'sandboxId 必填' }], isError: true };
+    const reg = readSandboxRegistry();
+    const verdict = cardHeartbeat(reg, sandboxId);
+    writeSandboxRegistry(reg);
+    return { content: [{ type: 'text', text: 'ok' }], structuredContent: verdict };
+  }
   if (name === 'vision_image_data') {
     const file = String(args?.image_path || '').trim();
     if (!file || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
@@ -110,7 +126,20 @@ async function dispatch(msg) {
   if (method === 'initialize') {
     return rpcResult(id, { protocolVersion: PROTOCOL_VERSION, capabilities: { tools: {}, resources: {} }, serverInfo: SERVER_INFO });
   }
-  if (method === 'tools/list') return rpcResult(id, { tools: TOOLS });
+  if (method === 'tools/list') {
+    // 名额预算：活卡数达到预算时，vision_ask 不再挂卡片（无 _meta.ui → 新结果按纯文本
+    // 展示，与旧客户端一致）。宿主沙箱全局上限 64，页面侧没有安全的单卡释放通道，
+    // 只能在入口少挂，绝不碰运行时（request-teardown 会拆掉整个插件 UI）
+    const reg = readSandboxRegistry();
+    const { live, allowed } = cardUiAllowed(reg, loadConfig());
+    writeSandboxRegistry(reg);
+    const visionAsk = TOOLS.find((t) => t.name === 'vision_ask');
+    // 每次从留存的原始 _meta 取值再决定挂不挂：直接改 visionAsk._meta 会把摘除态
+    // 固化，名额空出后恢复不回来
+    if (visionAsk) visionAsk._meta = allowed ? VISION_ASK_META : { ui: { visibility: ['model'] } };
+    if (!allowed) log(`识图卡片名额已满（活 ${live} ≥ 预算），vision_ask 暂挂纯文本`);
+    return rpcResult(id, { tools: TOOLS });
+  }
   if (method === 'tools/call') {
     try {
       return rpcResult(id, await handleCall(msg.params?.name, msg.params?.arguments));

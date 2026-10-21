@@ -24,10 +24,6 @@ _Avoid_: UI 后台、页面服务进程
 只给交互页面调用、不进模型工具列表的工具，声明 `_meta.ui.visibility: ["app"]`。
 _Avoid_: 内部工具、私有工具
 
-**框选引用（region reference）**：
-vision 页面上框选图片区域，把选区信息作为下一轮对话的附加上下文交回（updateModelContext）。
-_Avoid_: 截图引用、区域截图
-
 **评审条目（finding）**：
 ocr 评审结果的一条结构化意见（文件、行号、严重级、摘要、详情），由 ocr_render_review 工具写入、评审面板展示。
 _Avoid_: 评审点、问题项

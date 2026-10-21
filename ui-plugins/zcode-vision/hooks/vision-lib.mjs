@@ -47,6 +47,9 @@ export const DEFAULT_CONFIG = {
   // 60 秒会把慢的那次掐掉导致降级，故默认放宽到 120 秒（钩子总预算 165 秒内兜得住）
   apiTimeoutMs: 120000,
   compressThresholdKB: 1024, // 超过该大小的图先压缩再识别（最长边固定 2000、JPEG85）；0 = 不压缩
+  // 识图卡片沙箱名额预算（ZCode 宿主全局上限 64 个）：活卡数达到预算时，tools/list
+  // 停止给 vision_ask 挂卡片（新结果退回纯文本，与旧客户端一致），名额只减不爆
+  cardSandboxBudget: 63, // 上限 64 减一：常备一个空位，恢复挂卡后新结果即到即用
   skipAfterFailures: 2, // 连续失败多少次后暂时跳过该代理；0 = 不跳过
   skipMinutes: 30, // 跳过多久后重试；期间任一次成功即清零计数
   // 就算主模型自己能看图（如 mimo-v2.6-pro）也拦截识别并注入描述；false = 主模型能看图就不触发。
@@ -867,4 +870,39 @@ export async function prepareImage(imageFile, thresholdBytes = 1024 * 1024) {
 
 function usedLabelOf(p) {
   return p.__provider ? `${p.name}·${p.__provider}` : p.name;
+}
+
+
+// —— 识图卡片沙箱注册表（~/.zcode/zcode-vision-sandboxes.json）——
+// 每个卡片页面向自己的沙箱标识定期心跳到这里；宿主全局沙箱有 64 个名额，识图卡片
+// 是消耗大户，靠这张表实现"闲置自动释放 + 超预算淘汰最久未活跃"。文件读改写有轻微
+// 竞争（并发心跳丢一次更新），下轮心跳自愈，无需加锁。
+export function sandboxRegistryPath() {
+  return path.join(HOME, '.zcode', 'zcode-vision-sandboxes.json');
+}
+
+export function readSandboxRegistry() {
+  try { return readJson(sandboxRegistryPath()) || {}; } catch { return {}; }
+}
+
+export function writeSandboxRegistry(reg) {
+  try { atomicWrite(sandboxRegistryPath(), JSON.stringify(reg, null, 0) + '\n'); } catch { /* 写失败下轮再试 */ }
+}
+
+// 纯逻辑（可测）：登记一次心跳并清理死条目。
+// reg：pageId → {ts}；staleMs 内没心跳的条目视为页面已死剔除
+export function cardHeartbeat(reg, sandboxId, now = Date.now(), staleMs = 120_000) {
+  const STALE = now - staleMs;
+  for (const k of Object.keys(reg)) if ((reg[k]?.ts ?? 0) < STALE) delete reg[k];
+  reg[sandboxId] = { ts: now };
+  return { live: Object.keys(reg).length };
+}
+
+// 预算判定（tools/list 挂不挂卡片用）：清死条目后活卡数是否低于预算（预算 0 = 不限）
+export function cardUiAllowed(reg, cfg, now = Date.now(), staleMs = 120_000) {
+  const STALE = now - staleMs;
+  let live = 0;
+  for (const v of Object.values(reg)) if ((v?.ts ?? 0) >= STALE) live += 1;
+  const budget = Number(cfg?.cardSandboxBudget);
+  return { live, allowed: !(Number.isFinite(budget) && budget > 0 && live >= budget) };
 }

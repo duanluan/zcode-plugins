@@ -8,14 +8,21 @@
           {
             "type": "process",
             "command": "/bin/sh",
-            "args": ["${ZCODE_PLUGIN_ROOT}/hooks/runtime.cmd", "${ZCODE_PLUGIN_ROOT}/hooks/ensure-proxy.mjs"],
+            "args": [
+              "${ZCODE_PLUGIN_ROOT}/hooks/runtime.cmd",
+              "${ZCODE_PLUGIN_ROOT}/hooks/ensure-proxy.mjs"
+            ],
             "timeoutMs": 8000,
             "statusMessage": "Headroom: 检查压缩代理…"
           },
           {
             "type": "process",
-            "command": "${ZCODE_PLUGIN_ROOT}/hooks/runtime.cmd",
-            "args": ["${ZCODE_PLUGIN_ROOT}/hooks/ensure-proxy.mjs"],
+            "command": "cmd.exe",
+            "args": [
+              "/c",
+              "${ZCODE_PLUGIN_ROOT}\\hooks\\runtime.cmd",
+              "${ZCODE_PLUGIN_ROOT}\\hooks\\ensure-proxy.mjs"
+            ],
             "timeoutMs": 8000,
             "statusMessage": "Headroom: 检查压缩代理…"
           }

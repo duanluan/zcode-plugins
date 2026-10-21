@@ -146,7 +146,8 @@ function syncLocale(locale?: string) {
 }
 
 /**
- * 转义后的小型 markdown 渲染：标题（#~####）、加粗、行内代码、无序/有序列表、段落。
+ * 转义后的小型 markdown 渲染：标题（#~####）、加粗、行内代码、无序/有序列表、
+ * GFM 表格（表头 + |---| 分隔行 + 数据行）、段落。
  * 只支持识别回答这类简单文本，输入先整体转义，不会注入 HTML。
  */
 export function renderMarkdown(src: string): string {
@@ -160,9 +161,37 @@ export function renderMarkdown(src: string): string {
   };
   const inline = (s: string) =>
     s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>").replace(/`([^`]+)`/g, "<code>$1</code>");
-  for (const raw of lines) {
-    const line = raw.trimEnd();
-    if (/^#{1,4}\s+/.test(line)) {
+  // 表格分隔行：| --- | :---: | 之类的形态（首尾竖线可省）
+  const isTableDelimiter = (l: string) =>
+    /^\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)*\|?$/.test(l) && l.includes("|");
+  const splitRow = (l: string) =>
+    l.replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trimEnd();
+    // 当前行含竖线且（跳过被模型插在表头与分隔行之间的一个空行后）下一行是
+    // 分隔行 → 按 GFM 表格吃掉表头/分隔/连续数据行（标准 GFM 要求表头与分隔行
+    // 相邻，但识别模型常在中间输出空行，展示层容忍）
+    let delimIdx = -1;
+    if (line.includes("|") && i + 1 < lines.length) {
+      let d = i + 1;
+      if (!lines[d].trim()) d++;
+      if (d < lines.length && isTableDelimiter(lines[d].trim())) delimIdx = d;
+    }
+    if (delimIdx >= 0) {
+      closeLists();
+      const head = splitRow(line);
+      out.push("<table><thead><tr>");
+      for (const c of head) out.push(`<th>${inline(c)}</th>`);
+      out.push("</tr></thead><tbody>");
+      let j = delimIdx + 1;
+      for (; j < lines.length && lines[j].includes("|") && lines[j].trim(); j++) {
+        out.push("<tr>");
+        for (let k = 0; k < head.length; k++) out.push(`<td>${inline(splitRow(lines[j])[k] ?? "")}</td>`);
+        out.push("</tr>");
+      }
+      out.push("</tbody></table>");
+      i = j - 1;
+    } else if (/^#{1,4}\s+/.test(line)) {
       closeLists();
       out.push(`<h3>${inline(line.replace(/^#{1,4}\s+/, ""))}</h3>`);
     } else if (/^[-*]\s+/.test(line)) {
@@ -182,4 +211,24 @@ export function renderMarkdown(src: string): string {
   }
   closeLists();
   return out.join("");
+}
+
+/**
+ * 卡片存活心跳：页面向插件的 vision_card_heartbeat 心跳，服务端注册表据此掌握
+ * 当前活卡数（ZCode 宿主对插件界面沙箱有全局上限 64 个，超预算时服务端在
+ * tools/list 里停止给新结果挂卡片，退回纯文本——页面侧没有任何安全的单卡释放
+ * 通道：实测无 zcodePluginSandbox 原生桥；ui/notifications/request-teardown 是
+ * 运行时级的，会把整个插件 UI 拆掉殃及所有卡片，绝不能用）。
+ */
+export function setupCardHeartbeat(
+  heartbeat: (pageId: string) => Promise<unknown> | undefined,
+): void {
+  const POLL_MS = 20_000;
+  const pageId = crypto.randomUUID?.() || `p-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const beat = () => { try { void heartbeat(pageId); } catch { /* 心跳失败下轮再试 */ } };
+  beat();
+  window.setInterval(beat, POLL_MS);
+  const bump = () => beat();
+  window.addEventListener("pointerdown", bump, { passive: true });
+  window.addEventListener("keydown", bump, { passive: true });
 }

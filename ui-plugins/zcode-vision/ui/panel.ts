@@ -3,7 +3,7 @@
 // 事件处理要先注册再 connect，并保留连接前收到的初始结果（SDK 要求，避免丢首帧）。
 
 import type { App } from "@modelcontextprotocol/ext-apps";
-import { callToolJson, connectPage, renderMarkdown, updateContextSafe } from "../../../ui-common/zcode-page";
+import { callToolJson, connectPage, renderMarkdown, setupCardHeartbeat } from "../../../ui-common/zcode-page";
 
 interface AskResult {
   image_path?: string;
@@ -15,7 +15,6 @@ interface AskResult {
 
 let app: App;
 let latest: AskResult | null = null;
-let region: { x: number; y: number; w: number; h: number } | null = null;
 let imageLoaded = false; // 图片区展开时才拉图，默认收着不看的不浪费一次请求
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -25,11 +24,12 @@ function showError(text: string) {
   $("err").textContent = text;
 }
 
-// 图片与框选引用区默认收起（问答文字保持直接可读）；新结果到达时回到收起态
+// 图片区默认收起（问答文字保持直接可读）；新结果到达时回到收起态。
+// 追问不需要按钮：对话里直接提，模型会用 vision_ask 对原图定向追问
 function setToolsCollapsed(collapsed: boolean) {
   $("tools").classList.toggle("collapsed", collapsed);
   const toggle = $("tools-toggle");
-  toggle.textContent = collapsed ? "显示图片与框选引用" : "收起图片与框选";
+  toggle.textContent = collapsed ? "显示图片" : "收起图片";
   toggle.setAttribute("aria-expanded", String(!collapsed));
   if (!collapsed && !imageLoaded) void loadImage();
 }
@@ -49,6 +49,7 @@ function render() {
 
 async function loadImage() {
   if (!latest?.image_path) return;
+  if (!app) { $("err").textContent = "宿主连接不可用，无法加载图片（历史会话查看时可能出现）"; return; }
   try {
     const data = await callToolJson<{ dataUrl: string }>(app, "vision_image_data", { image_path: latest.image_path });
     $<HTMLImageElement>("img").src = data.dataUrl;
@@ -57,94 +58,14 @@ async function loadImage() {
   }
 }
 
-// —— 框选：相对图片显示尺寸的百分比（等比缩放下与原图百分比一致）——
-function setupSelection() {
-  const wrap = $("wrap");
-  const img = $("img");
-  const sel = $("sel");
-  let startX = 0;
-  let startY = 0;
-  let dragging = false;
 
-  const point = (e: MouseEvent) => {
-    const r = img.getBoundingClientRect();
-    return {
-      x: Math.min(Math.max((e.clientX - r.left) / r.width, 0), 1),
-      y: Math.min(Math.max((e.clientY - r.top) / r.height, 0), 1),
-    };
-  };
-
-  wrap.addEventListener("mousedown", (e) => {
-    e.preventDefault();
-    dragging = true;
-    const p = point(e);
-    startX = p.x;
-    startY = p.y;
-    region = null;
-    sel.style.display = "block";
-    Object.assign(sel.style, { left: `${p.x * 100}%`, top: `${p.y * 100}%`, width: "0%", height: "0%" });
-  });
-  wrap.addEventListener("mousemove", (e) => {
-    if (!dragging) return;
-    const p = point(e);
-    const x = Math.min(startX, p.x);
-    const y = Math.min(startY, p.y);
-    const w = Math.abs(p.x - startX);
-    const h = Math.abs(p.y - startY);
-    Object.assign(sel.style, { left: `${x * 100}%`, top: `${y * 100}%`, width: `${w * 100}%`, height: `${h * 100}%` });
-  });
-  const finish = (e: MouseEvent) => {
-    if (!dragging) return;
-    dragging = false;
-    const p = point(e);
-    const rect = {
-      x: Math.min(startX, p.x),
-      y: Math.min(startY, p.y),
-      w: Math.abs(p.x - startX),
-      h: Math.abs(p.y - startY),
-    };
-    if (rect.w < 0.01 || rect.h < 0.01) {
-      // 视为点击：取消选区
-      sel.style.display = "none";
-      region = null;
-      return;
-    }
-    region = rect;
-  };
-  wrap.addEventListener("mouseup", finish);
-  wrap.addEventListener("mouseleave", (e) => finish(e as MouseEvent));
-}
-
-async function reference() {
-  if (!latest?.image_path) return;
-  const path = latest.image_path;
-  let contentText: string;
-  if (region) {
-    const pct1 = (v: number) => `${(v * 100).toFixed(1)}%`;
-    contentText =
-      `【zcode-vision 框选引用】图片：${path}。用户在图上框选了区域（相对原图左上角的百分比）：` +
-      `x=${pct1(region.x)}，y=${pct1(region.y)}，宽=${pct1(region.w)}，高=${pct1(region.h)}。` +
-      `接下来的提问针对该选区内容。`;
-  } else {
-    contentText = `【zcode-vision 图片引用】图片：${path}。接下来的提问针对这张图片。`;
-  }
-  try {
-    const r = await updateContextSafe(app, {
-      content: [{ type: "text", text: contentText }],
-      ...(region ? { structuredContent: { image_path: path, region } } : {}),
-    });
-    if (r.ok) {
-      $("status").textContent = "已附加到输入区，接着提问即可";
-      setTimeout(() => { $("status").textContent = ""; }, 4000);
-    } else {
-      $("err").textContent = `引用失败：${r.error}`;
-    }
-  } catch (e) {
-    $("err").textContent = `引用失败：${(e as Error).message || e}`;
-  }
-}
 
 async function main() {
+  // 纯 DOM 的交互先挂好：历史会话查看时页面仍会渲染，但传输层可能连不上
+  //（connectPage 挂起），折叠开关不能跟着失联
+  // 注意取反：点击的语义是"切到另一个状态"，传当前状态进去等于原地不动
+  //（首版就少写了这个 !，按钮从上线起点击无反应，E2E 程序化点击才抓到）
+  $("tools-toggle").addEventListener("click", () => setToolsCollapsed(!$("tools").classList.contains("collapsed")));
   app = await connectPage("vision-card", "1.0.0", (a) => {
     // 初始结果可能在连接完成前送达：先挂事件、保留最近一份。
     // 成功结果带 structuredContent；失败/取消结果没有数据，给出明确提示而不是一直占位。
@@ -169,10 +90,11 @@ async function main() {
       showError("vision_ask 调用已取消");
     };
   });
-  setupSelection();
-  $("ref").addEventListener("click", () => void reference());
-  $("tools-toggle").addEventListener("click", () => setToolsCollapsed($("tools").classList.contains("collapsed")));
   render();
+  // 心跳进注册表（连接成功后才启动）：服务端据此掌握活卡数，达到 cardSandboxBudget
+  // 预算时在 tools/list 停挂新卡片（见 zcode-page 的 setupCardHeartbeat 注释）
+  setupCardHeartbeat((pageId) =>
+    callToolJson(app, "vision_card_heartbeat", { sandboxId: pageId }).catch(() => {}));
 }
 
 void main().catch((e) => {
