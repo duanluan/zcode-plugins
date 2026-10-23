@@ -1,3 +1,4 @@
-# 两个原生启动器分别钉死行尾：runtime.cmd 纯 sh 要 LF，runtime-win.cmd 纯批处理要 CRLF
+# runtime.cmd 纯 sh 要 LF；runtime-win.cmd 纯批处理必须字节保真 CRLF（-text 禁止入库剥 CR，
+# eol=crlf 只管检出方向、仓库里仍会被规整成 LF，marketplace 走 raw 取文件时就会坏）
 **/hooks/runtime.cmd text eol=lf
-**/hooks/runtime-win.cmd text eol=crlf
+**/hooks/runtime-win.cmd -text
