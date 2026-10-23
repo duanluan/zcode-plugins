@@ -47,7 +47,8 @@ function parseImageAttachments(summary) {
   if (typeof summary === 'string' && summary.includes(':image:')) {
     for (const m of summary.matchAll(/(\d+):image:(\/[^\s,]+|inline:\d+[^\s,]*|[^\s,]+)/g)) {
       const v = m[2];
-      if (v.startsWith('/')) paths.push(v);
+      // Windows 绝对路径（C:\ 或 C:/）同样按路径直读，不能落进 inline 轮询分支
+    if (/^([A-Za-z]:[\\/]|\/)/.test(v)) paths.push(v);
       else cacheCount += 1; // inline 或裸文件名：图片本体都在会话 image-cache 目录里
     }
   }

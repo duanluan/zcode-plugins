@@ -52,6 +52,7 @@ async function loadImage() {
   if (!app) { $("err").textContent = "宿主连接不可用，无法加载图片（历史会话查看时可能出现）"; return; }
   try {
     const data = await callToolJson<{ dataUrl: string }>(app, "vision_image_data", { image_path: latest.image_path });
+    imageLoaded = true;
     $<HTMLImageElement>("img").src = data.dataUrl;
   } catch (e) {
     $("err").textContent = `图片加载失败：${(e as Error).message || e}`;

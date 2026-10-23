@@ -20,7 +20,7 @@
             "command": "cmd.exe",
             "args": [
               "/c",
-              "${ZCODE_PLUGIN_ROOT}\\hooks\\runtime.cmd",
+              "${ZCODE_PLUGIN_ROOT}\\hooks\\runtime-win.cmd",
               "${ZCODE_PLUGIN_ROOT}\\hooks\\ensure-proxy.mjs"
             ],
             "timeoutMs": 8000,

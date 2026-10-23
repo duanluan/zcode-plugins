@@ -12,7 +12,7 @@ allowed-tools: Bash(sh:*), Bash(node:*), Bash(headroom:*), Bash(curl:*), Bash(ls
 
 ```bash
 HR_DIR=$(ls -d ~/.zcode/cli/plugins/cache/duanluan-zcode-plugins/headroom/*/hooks 2>/dev/null | tail -1)
-# 旧版插件没有 runtime.cmd 时退回：HR_HOOK 换成 ensure-proxy.sh，用 sh 调用
+# 旧版插件没有 runtime.sh 时退回：HR_HOOK 换成 ensure-proxy.sh，用 sh 调用
 ```
 
 - 端口：`${HEADROOM_PROXY_PORT:-8787}`（`--port` 可覆盖，作为 `HEADROOM_PROXY_PORT` 环境变量传入脚本）

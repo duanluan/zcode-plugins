@@ -383,10 +383,47 @@ t('旧配置升级：改过的配置保持原样（换模型/改模式都不动�
 
 // —— 真实配置（读本机 ~/.zcode，验证真实供应商可解析） ——
 
+// —— 卡片名额协调的纯逻辑（cardHeartbeat / cardUiAllowed）——
+t('心跳：新条目登记并返回累计存活数', () => {
+  const reg = {};
+  assert.equal(lib.cardHeartbeat(reg, 'a', 1000).live, 1);
+  assert.equal(lib.cardHeartbeat(reg, 'b', 1001).live, 2);
+  assert.equal(reg.a.ts, 1000);
+});
+t('心跳：120 秒无心跳的条目被清理', () => {
+  const reg = { dead: { ts: 1000 }, alive: { ts: 130_000 } };
+  const r = lib.cardHeartbeat(reg, 'x', 131_000);
+  assert.ok(!('dead' in reg), '死条目应被清理');
+  assert.ok('alive' in reg);
+  assert.equal(r.live, 2); // alive + x
+});
+t('预算判定：活卡数达预算时停挂、空出恢复', () => {
+  const cfg = { cardSandboxBudget: 2 };
+  const now = 500_000;
+  const ok = lib.cardUiAllowed({ a: { ts: now }, b: { ts: now } }, cfg, now);
+  assert.equal(ok.allowed, false, '活 2 ≥ 预算 2 应停挂');
+  const back = lib.cardUiAllowed({ a: { ts: now } }, cfg, now);
+  assert.equal(back.allowed, true, '活 1 < 2 应恢复');
+  assert.equal(back.live, 1);
+});
+t('预算判定：stale 条目不计入活卡数', () => {
+  const cfg = { cardSandboxBudget: 2 };
+  const now = 500_000;
+  const r = lib.cardUiAllowed({ a: { ts: now }, old: { ts: now - 130_000 } }, cfg, now);
+  assert.equal(r.live, 1);
+  assert.equal(r.allowed, true);
+});
+t('预算判定：0 = 不限，缺配置同 0', () => {
+  const now = 500_000;
+  const reg = { a: { ts: now }, b: { ts: now }, c: { ts: now } };
+  assert.equal(lib.cardUiAllowed(reg, { cardSandboxBudget: 0 }, now).allowed, true);
+  assert.equal(lib.cardUiAllowed(reg, {}, now).allowed, true);
+});
+
 t('真实配置：链中代理全部解析成功（无 __missing/__resolveError）', async () => {
   const cfg = lib.loadConfig();
   const cps = await lib.resolveChainProxies(cfg, null);
-  assert.ok(cps.length >= 2, '链至少两级');
+  assert.ok(cps.length >= 1, '链至少一级（默认单级 session）');
   for (const p of cps) {
     assert.ok(!p.__missing, `${p.name} 未定义`);
     assert.ok(!p.__resolveError, `${p.name}: ${p.__resolveError}`);

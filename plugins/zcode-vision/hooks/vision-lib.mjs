@@ -47,6 +47,11 @@ export const DEFAULT_CONFIG = {
   // 60 秒会把慢的那次掐掉导致降级，故默认放宽到 120 秒（钩子总预算 165 秒内兜得住）
   apiTimeoutMs: 120000,
   compressThresholdKB: 1024, // 超过该大小的图先压缩再识别（最长边固定 2000、JPEG85）；0 = 不压缩
+  // 识图卡片总开关：false = vision_ask 不挂卡片（结果纯文本，与旧客户端一致）。
+  // 默认关：纯插件安装稳妥优先（宿主插件卡片有全局 64 个名额，重度会话的注册
+  // 洪峰会撞上限报错）。装了 zcode-pro 的机器由其在读取/保存视觉配置时自动补
+  // cardUi=true 开卡（zcode-pro 带沙箱回收与失败卡自动重试，卡片可安全使用）
+  cardUi: false,
   // 识图卡片沙箱名额预算（ZCode 宿主全局上限 64 个）：活卡数达到预算时，tools/list
   // 停止给 vision_ask 挂卡片（新结果退回纯文本，与旧客户端一致），名额只减不爆
   cardSandboxBudget: 63, // 上限 64 减一：常备一个空位，恢复挂卡后新结果即到即用
@@ -134,7 +139,11 @@ export function loadConfig() {
     // 首跑生成模板（单级 session：跟随会话与其当前模型），用户可用 /vision-setup 或 zcode-pro 面板修改
     try {
       fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
-      atomicWrite(CONFIG_PATH, `${JSON.stringify(DEFAULT_CONFIG, null, 2)}\n`);
+      // 模板不写 cardUi：写了 false 的话 zcode-pro 的"缺键补 true"永远不触发
+      //（新装机装了 zcode-pro 也开不了卡片）；纯插件机器靠内存默认 false 生效
+      const tpl = { ...DEFAULT_CONFIG };
+      delete tpl.cardUi;
+      atomicWrite(CONFIG_PATH, `${JSON.stringify(tpl, null, 2)}\n`);
     } catch (e) {
       log(`写入配置模板失败：${e.message}`);
     }
@@ -148,7 +157,10 @@ export function loadConfig() {
   ) {
     const upgraded = { ...DEFAULT_CONFIG, ...onDisk, chain: DEFAULT_CONFIG.chain, proxies: DEFAULT_CONFIG.proxies };
     try {
-      atomicWrite(CONFIG_PATH, `${JSON.stringify(upgraded, null, 2)}\n`);
+      // 写盘剔除 cardUi（理由见首跑模板注释），返回值保留内存默认，语义不变
+      const toDisk = { ...upgraded };
+      delete toDisk.cardUi;
+      atomicWrite(CONFIG_PATH, `${JSON.stringify(toDisk, null, 2)}\n`);
       log('配置为未自定义的旧默认模板，已自动升级为默认单级链：session（跟随会话与其当前模型）');
     } catch (e) {
       log(`升级旧默认配置失败：${e.message}`);
@@ -850,10 +862,18 @@ export async function prepareImage(imageFile, thresholdBytes = 1024 * 1024) {
   if (!Number.isFinite(thresholdBytes) || thresholdBytes <= 0 || raw.length <= thresholdBytes) {
     return { buf: raw, mime: sniffMime(raw, imageFile) };
   }
-  const tool = await new Promise((resolve) => {
-    require_('node:child_process').execFile('sh', ['-c', 'command -v magick || command -v convert'], (err, out) =>
-      resolve(!err && out ? out.trim().split('\n').pop() : null));
-  });
+  // 探测跨平台：Windows 没有 sh，直接试 where（PATH 里的 magick/convert）；
+  // POSIX 走 sh -c command -v。探测失败一律回退原图
+  const cp = require_('node:child_process');
+  const tool = process.platform === 'win32'
+    ? await new Promise((resolve) => {
+        cp.execFile('where', ['magick'], (err, out) => resolve(!err && out ? out.trim().split(/\r?\n/).pop() : null))
+          .on('error', () => resolve(null));
+      })
+    : await new Promise((resolve) => {
+        cp.execFile('sh', ['-c', 'command -v magick || command -v convert'], (err, out) =>
+          resolve(!err && out ? out.trim().split('\n').pop() : null));
+      });
   if (!tool) return { buf: raw, mime: sniffMime(raw, imageFile) };
   const out = await new Promise((resolve) => {
     const child = require_('node:child_process').execFile(
@@ -876,7 +896,7 @@ function usedLabelOf(p) {
 // —— 识图卡片沙箱注册表（~/.zcode/zcode-vision-sandboxes.json）——
 // 每个卡片页面向自己的沙箱标识定期心跳到这里；宿主全局沙箱有 64 个名额，识图卡片
 // 是消耗大户，靠这张表实现"闲置自动释放 + 超预算淘汰最久未活跃"。文件读改写有轻微
-// 竞争（并发心跳丢一次更新），下轮心跳自愈，无需加锁。
+// 竞争（并发心跳丢一次更新），下轮心跳自动恢复，无需加锁。
 export function sandboxRegistryPath() {
   return path.join(HOME, '.zcode', 'zcode-vision-sandboxes.json');
 }

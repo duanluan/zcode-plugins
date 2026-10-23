@@ -21,7 +21,7 @@
     {
       "name": "headroom",
       "source": "./headroom",
-      "version": "1.3.1",
+      "version": "1.3.2",
       "description": "接入 Headroom 本地压缩代理：自动安装/启动，ZCode 请求经代理压缩后转发 GLM，减少 token 消耗。含会话启动时自动启动代理与 /hr-* 管理命令，跨 win/mac/linux（自带跨平台启动器，无需预装 Node/sh）。",
       "category": "developer-tools",
       "tags": [
@@ -34,7 +34,7 @@
     {
       "name": "rtk",
       "source": "./rtk",
-      "version": "1.4.1",
+      "version": "1.4.2",
       "description": "接入真 rtk（github.com/rtk-ai/rtk）：命令输出源头压缩 60-90%。运行命令时按 rtk 官方判断给出改写建议（每命令每会话仅提醒一次，原样重跑即放行；输出进文件/命令替换时不改写）；rtk 升级后官方全局提示词自动同步。钩子走自带跨平台启动器（无需预装 Node/sh），Windows 原生支持。命令：/rtk-setup（装后必做）、/rtk-status、/rtk <on|off|gain|uninstall>。",
       "category": "developer-tools",
       "tags": [
@@ -47,7 +47,7 @@
     {
       "name": "zcode-vision",
       "source": "./zcode-vision",
-      "version": "1.7.4",
+      "version": "1.7.5",
       "description": "图片视觉代理：主模型不支持图片输入时（如 glm-5.3），自动把图片交给可配置的视觉模型（默认单级跟随当前会话供应商，模型用会话当前模型或首选视觉模型映射）识别，结果以卡片展示在对话里，主模型读描述作答。支持多代理与自定义代理链（fallback/pipeline），配置走 /vision-* 命令或 zcode-pro 面板。钩子与 MCP 经自带跨平台启动器拉起（无需预装 Node/sh），Windows 原生支持（无配置文件时用内置默认链）。",
       "category": "developer-tools",
       "tags": [

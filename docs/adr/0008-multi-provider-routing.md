@@ -27,6 +27,9 @@ headroom 代理一个实例只支持一个上游。此前插件只管理"GLM ant
 - **路由表不能只在启动时建**：路由器启动时一次性构建 keyHash→端口映射的话，/hr-join 追加第二个供应商后它的 key 一律 502"未接入"；改为每个请求重读配置（文件只有几 KB）。
 - **分发层要放行设置类动作**：providers 非空时把 backend/power 一并转给 hr-multi，会因动作名不认识被打"用法"错误退出——这两个动作在 ensure-proxy.mjs 分发层单独处理（backend：写配置 + hr-multi restart；power：仅写配置，多实例模式下监视器不自动重启实例）。
 - **多实例模式下的电源监视器与 systemd**：两个 power-watch 都有"非插件管理即退出"的闸，多实例模式下没有旧状态文件会自己退出（不会误停路由器）；但迁移前必须禁用旧的 headroom-proxy systemd 单元，否则单元的自动重启会反复抢 8787。
+- **DOM webview 数不是宿主名额数**：卡片滚出视口后宿主把 webview 从页面摘除、名额却仍保留——实测宿主注册 24 张时 DOM 只剩 6 个。任何拿 DOM 元素数量当"活卡数"触发的回收逻辑都会数不到预算、从不动作；正确做法是记宿主建卡广播（zcode:plugin-sandbox-ports，主窗口可听）为登记簿并持久化（zcode-pro 重载后失忆会导致老名额永远叫不出 id、释放不了），DOM 只用于识别"正在被看"的卡片。
+- **释放动作的日志误区**：经官方桥 disposeSandbox 释放走宿主主进程内部路径，不经过 plugin-ui-bridge 的 closeInstance RPC——排查时别拿 closeInstance 日志的缺失判定"没有释放发生"。
+- **sh/cmd 两栖单文件不可行**：runtime.cmd 曾用一个文件同时喂 /bin/sh 和 cmd.exe，行尾需求相反（sh 要 LF、批处理要 CRLF），两头各翻车一次（CRLF 杀 sh 段、LF 连批处理的 exit /b 都拦不住执行流漏进 sh 段）；过渡期"旧会话缓存的钩子配置 × 新文件"组合还会瘫痪在跑会话。终局：按平台拆两个原生文件——runtime.cmd（纯 sh、LF、名字保留兼容旧缓存配置）+ runtime-win.cmd（纯批处理、CRLF），.gitattributes 分别钉死行尾。
 - **pgrep/pkill 模式自匹配**：Bash 工具的包装 shell 命令行里含命令文本本身，`pgrep -f '<模式>'` 会匹配到包装进程（本日三次：杀掉自己的 shell、两次误报实例 pid 变化）。判活用 `[x]` 方括号写法，或直接按 pid 操作。
 - **接入后地址失去协议线索**：baseUrl 改成 127.0.0.1:8787 后，一切"按地址推断协议"的代码都会失效——实测视觉代理把 mimo 的识别请求按 openai 打到错误端点（连续失败进入跳过期），zcode-pro 面板把推不出协议的供应商从下拉列表过滤掉、保存的旧值显示"（已删除）"。两个配套：接入时给 providerRules 补写 api.type；读侧再查 headroom.json 注册表兜底（vision 插件与 zcode-pro helper 都做了）。
 

@@ -130,15 +130,22 @@ async function dispatch(msg) {
     // 名额预算：活卡数达到预算时，vision_ask 不再挂卡片（无 _meta.ui → 新结果按纯文本
     // 展示，与旧客户端一致）。宿主沙箱全局上限 64，页面侧没有安全的单卡释放通道，
     // 只能在入口少挂，绝不碰运行时（request-teardown 会拆掉整个插件 UI）
+    const cfg = loadConfig();
     const reg = readSandboxRegistry();
-    const { live, allowed } = cardUiAllowed(reg, loadConfig());
-    writeSandboxRegistry(reg);
+    const { live, allowed } = cardUiAllowed(reg, cfg);
     const visionAsk = TOOLS.find((t) => t.name === 'vision_ask');
     // 每次从留存的原始 _meta 取值再决定挂不挂：直接改 visionAsk._meta 会把摘除态
     // 固化，名额空出后恢复不回来
-    if (visionAsk) visionAsk._meta = allowed ? VISION_ASK_META : { ui: { visibility: ['model'] } };
-    if (!allowed) log(`识图卡片名额已满（活 ${live} ≥ 预算），vision_ask 暂挂纯文本`);
-    return rpcResult(id, { tools: TOOLS });
+    // cardUi=false（总开关关）或名额满：不挂卡片，结果按纯文本展示。
+    // 响应用拷贝构造（不改共享 TOOLS）：同批多条请求先后同步改写共享对象的话，
+    // 先到的响应序列化时会带上后到的摘挂状态；拷贝彻底消除这一撕裂窗口
+    const attach = allowed && cfg.cardUi !== false;
+    if (!attach) log(cfg.cardUi === false ? 'cardUi=false：vision_ask 不挂卡片（纯文本）' : `识图卡片名额已满（活 ${live} ≥ 预算），vision_ask 暂挂纯文本`);
+    return rpcResult(id, {
+      tools: TOOLS.map((t) => t.name === 'vision_ask'
+        ? { ...t, _meta: attach ? VISION_ASK_META : { ui: { visibility: ['model'] } } }
+        : t),
+    });
   }
   if (method === 'tools/call') {
     try {
