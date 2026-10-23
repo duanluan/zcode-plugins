@@ -1,2 +1,3 @@
-hooks/runtime.cmd text eol=lf
-hooks/runtime-win.cmd text eol=crlf
+# 两个原生启动器分别钉死行尾：runtime.cmd 纯 sh 要 LF，runtime-win.cmd 纯批处理要 CRLF
+**/hooks/runtime.cmd text eol=lf
+**/hooks/runtime-win.cmd text eol=crlf
