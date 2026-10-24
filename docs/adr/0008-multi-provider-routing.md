@@ -30,6 +30,8 @@ headroom 代理一个实例只支持一个上游。此前插件只管理"GLM ant
 - **DOM webview 数不是宿主名额数**：卡片滚出视口后宿主把 webview 从页面摘除、名额却仍保留——实测宿主注册 24 张时 DOM 只剩 6 个。任何拿 DOM 元素数量当"活卡数"触发的回收逻辑都会数不到预算、从不动作；正确做法是记宿主建卡广播（zcode:plugin-sandbox-ports，主窗口可听）为登记簿并持久化（zcode-pro 重载后失忆会导致老名额永远叫不出 id、释放不了），DOM 只用于识别"正在被看"的卡片。
 - **释放动作的日志误区**：经官方桥 disposeSandbox 释放走宿主主进程内部路径，不经过 plugin-ui-bridge 的 closeInstance RPC——排查时别拿 closeInstance 日志的缺失判定"没有释放发生"。
 - **sh/cmd 两栖单文件不可行**：runtime.cmd 曾用一个文件同时喂 /bin/sh 和 cmd.exe，行尾需求相反（sh 要 LF、批处理要 CRLF），两头各翻车一次（CRLF 杀 sh 段、LF 连批处理的 exit /b 都拦不住执行流漏进 sh 段）；过渡期"旧会话缓存的钩子配置 × 新文件"组合还会瘫痪在跑会话。终局：按平台拆两个原生文件——runtime.cmd（纯 sh、LF、名字保留兼容旧缓存配置）+ runtime-win.cmd（纯批处理、CRLF），.gitattributes 分别钉死行尾。
+- **插件加载有两道闸**：installed_plugins.json（注册清单）之外还有 ~/.zcode/cli/config.json 的 plugins.enabledPlugins 启用表——卸载会把两处一起清掉，手工恢复只补注册清单不补启用表的话，插件在 3.16.1 上尚能蒙混（缺席=默认启用），3.16.2 起缺席即不启用，表现为"怎么重装都不加载、MCP 进程为零"。手工恢复/迁移插件必须三处齐备：注册清单（含 cacheTransactionId）、启用表（true）、缓存目录。
+- **MCP 服务分发链必须有 .catch**：dispatch(...).then(...) 不带 catch 时，任何消息处理抛出的未捕获 rejection 在 Node ≥15 会直接杀进程——表现为服务反复消失、会话中途丢工具且宿主日志无痕。另配 process.on('uncaughtException'/'unhandledRejection') 双兜底记日志保活。
 - **pgrep/pkill 模式自匹配**：Bash 工具的包装 shell 命令行里含命令文本本身，`pgrep -f '<模式>'` 会匹配到包装进程（本日三次：杀掉自己的 shell、两次误报实例 pid 变化）。判活用 `[x]` 方括号写法，或直接按 pid 操作。
 - **接入后地址失去协议线索**：baseUrl 改成 127.0.0.1:8787 后，一切"按地址推断协议"的代码都会失效——实测视觉代理把 mimo 的识别请求按 openai 打到错误端点（连续失败进入跳过期），zcode-pro 面板把推不出协议的供应商从下拉列表过滤掉、保存的旧值显示"（已删除）"。两个配套：接入时给 providerRules 补写 api.type；读侧再查 headroom.json 注册表兜底（vision 插件与 zcode-pro helper 都做了）。
 

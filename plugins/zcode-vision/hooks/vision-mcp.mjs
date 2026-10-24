@@ -198,8 +198,12 @@ process.stdin.on('data', (chunk) => {
       continue;
     }
     pending += 1;
+    // .catch 必须有：任何未捕获 rejection 在 Node ≥15 会直接杀进程——实测表现为
+    // 服务反复消失、会话中途丢工具（vision 卡"用不了"的根因之一）
     void dispatch(msg).then((resp) => {
       if (resp) process.stdout.write(`${JSON.stringify(resp)}\n`);
+    }).catch((e) => {
+      log(`dispatch 未捕获：${e?.stack || e}`);
     }).finally(() => {
       pending -= 1;
       maybeExit();
@@ -210,3 +214,7 @@ process.stdin.on('end', () => {
   stdinEnded = true;
   maybeExit();
 });
+
+// 兜底：任何漏网的未捕获异常/rejection 记日志后保活，不杀进程
+process.on('uncaughtException', (e) => { log(`未捕获异常：${e?.stack || e}`); });
+process.on('unhandledRejection', (e) => { log(`未处理 rejection：${e?.stack || e}`); });
