@@ -1,6 +1,6 @@
 {
   "name": "@duanluan/plugin-open-code-review",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "private": true,
   "description": "集成 OpenCodeReview (ocr) 命令行工具的 Git 变更 AI 代码评审。"
 }

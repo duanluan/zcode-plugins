@@ -401,6 +401,10 @@ process.stdin.on('data', (chunk) => {
     pending += 1;
     void dispatch(msg).then((resp) => {
       if (resp) process.stdout.write(`${JSON.stringify(resp)}\n`);
+    }).catch((e) => {
+      // 未捕获 rejection 在 Node ≥15 会直接杀进程（服务静默消失、会话丢工具），
+      // 记 stderr 供宿主日志排查并保活
+      console.error(`[headroom-ui] dispatch 未捕获：`, e?.stack || e);
     }).finally(() => {
       pending -= 1;
       maybeExit();
@@ -411,3 +415,8 @@ process.stdin.on('end', () => {
   stdinEnded = true;
   maybeExit();
 });
+
+// 进程级兜底：任何漏网异常记 stderr 不杀进程（理由见 dispatch 的 .catch 注释）
+process.on('uncaughtException', (e) => { console.error(`[headroom-ui] 未捕获异常：`, e?.stack || e); });
+process.on('unhandledRejection', (e) => { console.error(`[headroom-ui] 未处理 rejection：`, e?.stack || e); });
+
