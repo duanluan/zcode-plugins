@@ -48,7 +48,7 @@ headroom 压缩模型默认自动选最快设备（CUDA/MPS 显卡优先，回�
 
 ### 🔄 自动启动
 
-长期使用建议配置 **systemd 用户服务**（开机自启、崩溃自动重启，`/hr-setup` 含完整 unit 内容；**接入多供应商路由（/hr-join）后不要建**——8787 由路由器接管，systemd 的自动重启会反复抢端口）——`nohup` 启动的代理重启电脑后会丢失，导致 ZCode 提示"重新连接中"。插件另带兜底：每次会话启动时检测 8787 端口，代理没跑就后台启动（端口探测用 `/livez`）。环境变量可覆盖：`HEADROOM_PROXY_PORT`、`HEADROOM_PROXY_AUTOSTART=0`（关闭）、`HEADROOM_UPSTREAM_ANTHROPIC`（上游地址）、`HEADROOM_KOMPRESS_BACKEND` / `HEADROOM_POWER_SAVE_CPU`（见上节，仅当前进程生效）。
+长期使用建议配置 **systemd 用户服务**（开机自启、崩溃自动重启，`/hr-setup` 含完整 unit 内容；**接入多供应商路由（/hr-join）后不要建**——8787 由路由器接管，systemd 的自动重启会反复抢端口）——`nohup` 启动的代理重启电脑后会丢失，导致 ZCode 提示"重新连接中"。插件另带兜底：每次会话启动或恢复时（SessionStart 的 `startup|resume` 匹配值；重启电脑后打开应用恢复旧会话触发的是 `resume`，只匹配 `startup` 会漏掉）检测 8787 端口，代理没跑就后台启动（端口探测用 `/livez`）；生命周期动作带跨进程锁，多个会话同时触发也不会重复拉起，启动中尚未监听端口的实例也不会被误杀重拉（30 秒宽限，超期按卡死重拉）。环境变量可覆盖：`HEADROOM_PROXY_PORT`、`HEADROOM_PROXY_AUTOSTART=0`（关闭）、`HEADROOM_UPSTREAM_ANTHROPIC`（上游地址）、`HEADROOM_KOMPRESS_BACKEND` / `HEADROOM_POWER_SAVE_CPU`（见上节，仅当前进程生效）。
 
 ### 🪟 Windows
 

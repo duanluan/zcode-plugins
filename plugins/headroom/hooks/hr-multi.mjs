@@ -120,10 +120,21 @@ function appendLog(text) {
 }
 
 // —— 实例规划：按"格式+上游"分组共享。端口复用条件 = state 里该组的 pid 存活
-// （是我们拉起的实例）；pid 不活时配置端口视为失效，从 BASE_PORT 找可绑定空闲口 ——
+// （是我们拉起的实例）；pid 存活时端口未监听也算复用（实例启动要数秒到十几秒，
+// 冷启动窗口内后续 ensure 不改端口——否则会杀掉正在初始化的实例、换端口重拉，
+// 应用启动时多个恢复会话连发钩子必踩）；pid 不活时配置端口视为失效，
+// 从 BASE_PORT 找可绑定空闲口 ——
 function pidAlive(pid) {
   if (!pid) return false;
   try { process.kill(pid, 0); return true; } catch { return false; }
+}
+
+// 该组最近一次 spawn 的时间戳在宽限期内（默认 30 秒，启动慢的冷启动够用）：
+// pid 活着但端口还没监听时视为"启动中"，不杀不重拉；超期仍没监听按卡死处理
+const START_GRACE_MS = 30_000;
+function startingGrace(st, key) {
+  const t = st.startedAt && st.startedAt[key];
+  return typeof t === 'number' && Date.now() - t < START_GRACE_MS;
 }
 
 async function plan(cfg, st) {
@@ -150,11 +161,12 @@ async function plan(cfg, st) {
   for (const [key, provs] of groups) {
     let port = cfg.instances[key];
     const ourPid = st.instances[key];
-    if (!port || used.has(port) || !(ourPid && pidAlive(ourPid) && await canBind(port) === false && await portUp(port))) {
+    if (port && !used.has(port) && ourPid && pidAlive(ourPid)) {
+      // 我们拉起的实例还活着（含端口未监听的启动窗口）：保留原端口，不重分配
+      used.add(port);
+    } else {
       port = await findFree();
       cfg.instances[key] = port;
-    } else {
-      used.add(port);
     }
     plans.push({ key, port, format: provs[0].format, upstream: provs[0].upstream, providers: provs, pid: ourPid });
   }
@@ -188,9 +200,14 @@ async function doEnsure() {
   const st = st0;
   st.instances = st.instances || {};
   for (const pl of plans) {
-    // 幂等判定：本组登记 pid 存活且端口健康才跳过；否则（含被陌生进程占口）重拉
-    if (pl.pid && pidAlive(pl.pid) && await portUp(pl.port)) { console.log(`实例 ${pl.key} 127.0.0.1:${pl.port} 已在跑`); st.instances[pl.key] = pl.pid; continue; }
-    if (pl.pid && pidAlive(pl.pid)) killTree(pl.pid);
+    // 幂等判定：本组登记 pid 存活且端口健康 → 跳过；pid 活着但端口未监听且仍在
+    // 启动宽限期内（冷启动要数秒到十几秒）→ 同样跳过，不杀不重拉；超期还没监听
+    // 按卡死处理重拉；pid 已死（含被陌生进程占口）重拉
+    if (pl.pid && pidAlive(pl.pid)) {
+      if (await portUp(pl.port)) { console.log(`实例 ${pl.key} 127.0.0.1:${pl.port} 已在跑`); st.instances[pl.key] = pl.pid; continue; }
+      if (startingGrace(st, pl.key)) { console.log(`实例 ${pl.key} 127.0.0.1:${pl.port} 启动中（pid ${pl.pid}），本次不干预`); continue; }
+      killTree(pl.pid);
+    }
     const env = { ...process.env };
     // 上游用 CLI 参数显式指定。注意不要传 --backend：默认（passthrough）会按鉴权风格
     // 自动选 anthropic/openai 上游并使用下面的 URL 覆盖；传 --backend openai 会覆写成
@@ -205,6 +222,8 @@ async function doEnsure() {
       const child = spawn(bin, proxyArgs, { detached: true, stdio: ['ignore', logFd, logFd], env, windowsHide: true });
       child.unref();
       st.instances[pl.key] = child.pid;
+      st.startedAt = st.startedAt || {};
+      st.startedAt[pl.key] = Date.now();
       appendLog(`start headroom port=${pl.port} upstream=${pl.upstream} format=${pl.format}\n`);
     } catch (e) {
       console.error(`实例 ${pl.key} 启动失败：${e.message}`);

@@ -14,7 +14,7 @@
 // 配置/状态文件与 sh 版共用同一套路径与格式（~/.zcode/headroom.json 等）。
 
 import { spawn } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir, platform } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
@@ -23,6 +23,76 @@ import { fileURLToPath } from 'node:url';
 const args = process.argv.slice(2);
 const action = args[0] || 'ensure';
 const here = path.dirname(fileURLToPath(import.meta.url));
+
+// —— 生命周期动作跨进程互斥 ——
+// SessionStart 钩子补上 resume 匹配后，应用启动时多个恢复的会话会在几秒内连发
+// 多个 ensure，同时 spawn 实例会抢同一端口、留下孤儿进程；/hr 命令、设置面板
+// 的重启也可能撞上。锁用目录创建的原子性实现：抢不到且持有者存活、锁未
+// 超时就静默跳过（ensure 幂等，跳过无影响）；持有者死亡（含强制重启残留的锁）
+// 立即接管；超过 60 秒按悬挂强制接管——钩子 8 秒超时被强杀不走 exit 清理，只能
+// 靠超时兜底。竞争时的两种策略：ensure/start 是自动触发的幂等动作，立刻退出；
+// stop/restart/backend/power 是用户显式操作，最多等 20 秒后强制接管，保证用户
+// 的停止/重启最终生效。status 只读，不加锁；锁目录异常（权限等）不拦截动作，
+// 保持尽力而为。
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const lockDir = process.env.HR_HEADROOM_CONFIG
+  ? path.join(path.dirname(process.env.HR_HEADROOM_CONFIG), 'hr-ensure-test.lock')
+  : path.join(homedir(), '.zcode-headroom-ensure.lock');
+let lockHeld = false;
+const releaseLock = () => {
+  if (!lockHeld) return;
+  lockHeld = false;
+  try { rmSync(lockDir, { recursive: true, force: true }); } catch { /* ignore */ }
+};
+if (action !== 'status') {
+  const pidAlive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  const rmLock = () => { try { rmSync(lockDir, { recursive: true, force: true }); } catch { /* ignore */ } };
+  const tryAcquire = () => {
+    try {
+      mkdirSync(lockDir);
+      writeFileSync(path.join(lockDir, 'pid'), `${process.pid}\n`);
+      return true;
+    } catch (err) {
+      return err?.code !== 'EEXIST';
+    }
+  };
+  // 持有者死亡（含强制重启残留）或锁超龄 → 悬挂，可强制接管
+  const lockStale = () => {
+    let holderPid = 0;
+    try { holderPid = Number(readFileSync(path.join(lockDir, 'pid'), 'utf8')) || 0; } catch { /* ignore */ }
+    if (!holderPid || !pidAlive(holderPid)) return true;
+    try { return statSync(lockDir).mtimeMs < Date.now() - 60_000; } catch { return true; }
+  };
+  const acquireOrSteal = () => {
+    if (tryAcquire()) return true;
+    if (!lockStale()) return false;
+    rmLock();
+    return tryAcquire();
+  };
+  let acquired = tryAcquire() || acquireOrSteal();
+  if (!acquired && !['stop', 'restart', 'backend', 'power'].includes(action)) {
+    console.log('headroom: 另一个生命周期动作正在执行，本次跳过（动作幂等，跳过无影响）');
+    process.exit(0);
+  }
+  if (!acquired) {
+    const deadline = Date.now() + 20_000;
+    while (Date.now() < deadline && !(acquired = acquireOrSteal())) {
+      await sleep(300);
+    }
+    if (!acquired) {
+      rmLock();
+      acquired = tryAcquire();
+      if (!acquired) console.log('headroom: 生命周期锁长时间无法获取，无锁继续执行');
+    }
+  }
+  if (acquired) {
+    lockHeld = true;
+    process.on('exit', releaseLock);
+    // 钩子超时被 SIGTERM/SIGINT 杀掉时不触发 exit 事件，单独清理，避免留下等 60 秒超时的锁
+    process.on('SIGTERM', () => { releaseLock(); process.exit(0); });
+    process.on('SIGINT', () => { releaseLock(); process.exit(0); });
+  }
+}
 
 // 多供应商压缩路由（hr-multi）：providers 已配置时由它接管 ensure/start/restart/status；
 // backend/power 先写配置再转 hr-multi 重启实例（旧代理的重启语义在多实例模式下不适用，
