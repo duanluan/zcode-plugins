@@ -91,6 +91,8 @@ async function handleCall(name, args) {
     }
     const cfg = loadConfig();
     const { desc, used, cached } = await askImage(cfg, file, question);
+    // 机器可读的调用记录：钩子靠它在下一轮判断“模型已按要求识别”（跟踪追击）
+    log(`ASK:OK ${file}`);
     // 文本输出保持不变（模型与旧客户端读它）；structuredContent 是内嵌卡片页面的数据副本（ADR-0003）
     return {
       content: [{ type: 'text', text: `[vision_ask · ${used}${cached ? ' · 缓存命中' : ''}] ${desc}` }],

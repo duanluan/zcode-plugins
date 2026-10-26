@@ -20,11 +20,15 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  HOME,
   IMAGE_CACHE_ROOT,
+  LOG_PATH,
+  atomicWrite,
   compressThresholdBytesOf,
   loadCache,
   loadConfig,
   log,
+  readJson,
   saveCache,
   chainFingerprint,
   prepareImage,
@@ -90,9 +94,12 @@ function collectInlineImages(sessionId, pollMs) {
 
 // tool 模式：不在后台预跑识别，只注入指路文本让模型调 vision_ask——识别结果以工具
 // 卡片展示给用户（钩子注入的纯文字不进界面，这是 ZCode 的显示规则，见 vision-lib）
-function buildPointerContext(files) {
+function buildPointerContext(files, pendingCount = 0) {
+  const head = pendingCount > 0
+    ? `[zcode-vision] 提醒：此前 ${pendingCount} 张图片你一直没有调用 vision_ask 识别。在识别这些图片之前不要执行其他操作——它们的内容你并不掌握，凭文件名或猜测回答会出错。`
+    : `[zcode-vision] 用户本轮发送了 ${files.length} 张图片。图片内容尚未识别：请先调用 vision_ask 工具识别，再回答用户的问题。`;
   const lines = [
-    `[zcode-vision] 用户本轮发送了 ${files.length} 张图片。图片内容尚未识别：请先调用 vision_ask 工具识别，再回答用户的问题。`,
+    head,
     '',
   ];
   files.forEach((f, i) => {
@@ -101,6 +108,32 @@ function buildPointerContext(files) {
   });
   lines.push('（识别结果会以卡片展示给用户，用户可展开查看；不要仅凭文件名猜测图片内容，也不要要求用户重发图片。）');
   return { additionalContext: lines.join('\n') };
+}
+
+// —— 跟踪追击（tool 模式）：待识别清单 ——
+// 指过路的图记到 pending 文件（按会话隔离）；每次钩子触发时解析日志尾部的
+// ASK:OK 行（vision_ask 每次成功调用写一行），已识别的移出清单；仍在清单里
+// 的下一轮升级措辞追击，每图最多追 3 轮（模型坚决不调时不再无限纠缠）
+const PENDING_PATH = path.join(HOME, '.zcode', 'zcode-vision-pending.json');
+function loadPending() {
+  const raw = readJson(PENDING_PATH);
+  return raw && typeof raw === 'object' ? raw : {};
+}
+function savePending(p) {
+  try { atomicWrite(PENDING_PATH, JSON.stringify(p)); } catch { /* 失败不影响主流程 */ }
+}
+function askedPathsFromLog() {
+  const out = new Set();
+  try {
+    const st = fs.statSync(LOG_PATH);
+    const start = Math.max(0, st.size - 128 * 1024);
+    const fd = fs.openSync(LOG_PATH, 'r');
+    const buf = Buffer.alloc(st.size - start);
+    fs.readSync(fd, buf, 0, buf.length, start);
+    fs.closeSync(fd);
+    for (const m of buf.toString('utf8').matchAll(/ASK:OK (\S+)/g)) out.add(m[1]);
+  } catch { /* 日志缺失=没有记录 */ }
+  return out;
 }
 
 function buildContext(results, models) {
@@ -178,9 +211,39 @@ async function main() {
     process.exit(0);
   }
 
-  // tool 模式（默认）：钩子只做检测与指路，识别交给 vision_ask 工具——结果卡片对用户可见
+  // tool 模式（默认）：钩子只做检测与指路，识别交给 vision_ask 工具——结果卡片
+  // 对用户可见。指过的图进 pending 清单跟踪：模型没调 vision_ask 的下一轮升级
+  // 措辞再指，直到识别完成或追满 3 轮
   if (cfg.interceptMode !== 'inject') {
-    process.stdout.write(JSON.stringify(buildPointerContext(uniq)));
+    const pending = loadPending();
+    const sessKey = String(payload.session_id || '_');
+    const asked = askedPathsFromLog();
+    const prevMap = new Map();
+    if (Array.isArray(pending[sessKey])) {
+      // 清单维护：已识别（日志有 ASK:OK）或文件已不存在的移出；其余保留原轮次
+      for (const e of pending[sessKey]) {
+        if (e && e.file && !asked.has(e.file) && fs.existsSync(e.file)) prevMap.set(e.file, e.round || 1);
+      }
+    }
+    // 本轮新图 round 1；旧图 round+1；超过 3 轮的放弃追击——仍出现在本轮指路
+    // 文本里（uniq 全量传入），但不再进清单、不计入追击计数（下轮自然回到普通指路）。
+    // 已识别（asked）的图不进清单：识别过的图留在指路文本里是给模型看的，
+    // 跟踪追击只针对"从未被识别"的
+    const tracked = [];
+    for (const f of uniq) {
+      if (asked.has(f)) continue;
+      const round = (prevMap.get(f) || 0) + 1;
+      if (round <= 3) tracked.push({ file: f, round });
+    }
+    if (tracked.length) pending[sessKey] = tracked;
+    else delete pending[sessKey];
+    // 会话级清理：本轮活跃会话之外只留最近 8 个（按键的最后写入时间无从得知，
+    // 用“当前会话必留 + 其余截断”保证活跃会话永不被清）
+    const otherKeys = Object.keys(pending).filter((k) => k !== sessKey);
+    for (const k of otherKeys.slice(0, Math.max(0, otherKeys.length - 7))) delete pending[k];
+    savePending(pending);
+    const pendingCount = tracked.filter((e) => e.round > 1).length;
+    process.stdout.write(JSON.stringify(buildPointerContext(uniq, pendingCount)));
     process.exit(0);
   }
 
