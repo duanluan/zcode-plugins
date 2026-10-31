@@ -41,7 +41,7 @@ node ~/.zcode/cli/plugins/cache/duanluan-zcode-plugins/headroom/*/hooks/hr-multi
    - `~/.zcode/headroom.json` 追加：`{"id": 供应商id, "name": 名称, "upstream": 原 baseURL, "format": 判定格式, "keyHash": sha256(apiKey), "origBaseURL": 原 baseURL}`（保留该文件其他键）
      （providers 的字段结构被 zcode-pro 的 helper.mjs 与 zcode-vision 的 vision-lib.mjs（各有一份 headroomFormatOf）按本表读取来判定协议，改结构时三处同改）
    - 把该供应商的 baseUrl 改为 `http://127.0.0.1:8787`，**落点按类型**：普通自定义供应商改 config.json 的 `options.baseURL`；模板供应商改 provider_config.json 里对应 providerRules 条目的 `config.api.baseUrl`（其余字段一律不动）
-   - 模板供应商的 providerRules 条目**同时补写 `config.api.type`**（anthropic → anthropic-messages，openai → chat-completions）：地址改成 127.0.0.1:8787 后不再带协议线索，下游按地址推断协议的代码（zcode-pro 面板的供应商列表、视觉代理的请求端点等）会失效，必须有显式类型
+   - 模板供应商的 providerRules 条目**同时补写 `config.api.type`**（format 为 anthropic → anthropic-messages，format 为 openai → openai-chat-completions）：地址改成 127.0.0.1:8787 后不再带协议线索，下游按地址推断协议的代码（zcode-pro 面板的供应商列表、视觉代理的请求端点等）会失效，必须有显式类型
 
 5. **若是首次接入（此前 status 输出 legacy）**：先停旧单实例再让路由器接管 8787：
 
@@ -63,7 +63,7 @@ node <插件目录>/hooks/hr-multi.mjs ensure
 适用：从未建过 bigmodel 自定义供应商、或想为某个上游新建一个走压缩的供应商。结构模板（与真实自定义供应商逐字段一致）：
 
 ```json
-{ "name": "<显示名>", "kind": "anthropic|openai（=format）", "source": "custom",
+{ "name": "<显示名>", "kind": "anthropic|openai-compatible（按 format 映射：anthropic→anthropic、openai→openai-compatible；kind=openai 是 Responses 协议，chat/completions 上游必须 openai-compatible）", "source": "custom",
   "options": { "apiKey": "<key>", "baseURL": "http://127.0.0.1:8787", "apiKeyRequired": true },
   "models": { "<模型id>": { "name": "<显示名>" } } }
 ```
@@ -73,7 +73,7 @@ node <插件目录>/hooks/hr-multi.mjs ensure
 2. **GLM 一键场景**（用户说"接 GLM/智谱压缩"）：上游 `https://open.bigmodel.cn/api/anthropic`、kind=anthropic、模型清单**整体复制 `provider["builtin:bigmodel"].models`**（自带 reasoning/limit 卡片），只让用户给 key 和名称
 3. 其他上游：模型按用户给的 id 清单建最小卡 `{ "name": id }`（limits 等卡片可后续界面补全）
 4. 注册映射到 ~/.zcode/headroom.json：`upstream` = 真实上游、`origBaseURL` = 真实上游（这样 `/hr-join off` 会把它还原成**直连供应商**而不是删除；用户想删供应商去界面删）
-5. 让新供应商在界面可见（改 `~/.zcode/v2/provider_config.json`，先备份）：把新 id 追加进 `config.providerOrder`，并在 `providerConfigRules.providerRules` 补一条——providerId、providerName、`config.access.apiKey`、`config.api.baseUrl` = http://127.0.0.1:8787、`config.api.type` 按 kind 映射（anthropic → anthropic-messages，openai → chat-completions）、personalModelIds / modelOrder 填模型清单。改完用户界面仍看不到的话，回退界面手建
+5. 让新供应商在界面可见（改 `~/.zcode/v2/provider_config.json`，先备份）：把新 id 追加进 `config.providerOrder`，并在 `providerConfigRules.providerRules` 补一条——providerId、providerName、`config.access.apiKey`、`config.api.baseUrl` = http://127.0.0.1:8787、`config.api.type` 按 kind 映射（anthropic → anthropic-messages，openai-compatible → openai-chat-completions）、personalModelIds / modelOrder 填模型清单。改完用户界面仍看不到的话，回退界面手建
 6. `hr-multi.mjs ensure`（首次接入先 `ensure-proxy.mjs stop`）→ 按无参流程第 6 步的验证方式实测一条消息 → 告知重启 ZCode 生效
 
 ## /hr-join list

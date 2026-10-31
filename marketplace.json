@@ -21,7 +21,7 @@
     {
       "name": "headroom",
       "source": "./headroom",
-      "version": "1.3.3",
+      "version": "1.3.4",
       "description": "接入 Headroom 本地压缩代理：自动安装/启动，ZCode 请求经代理压缩后转发 GLM，减少 token 消耗。含会话启动时自动启动代理与 /hr-* 管理命令，跨 win/mac/linux（自带跨平台启动器，无需预装 Node/sh）。",
       "category": "developer-tools",
       "tags": [
