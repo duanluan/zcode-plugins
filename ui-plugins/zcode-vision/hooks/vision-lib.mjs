@@ -57,9 +57,10 @@ export const DEFAULT_CONFIG = {
   cardSandboxBudget: 63, // 上限 64 减一：常备一个空位，恢复挂卡后新结果即到即用
   skipAfterFailures: 2, // 连续失败多少次后暂时跳过该代理；0 = 不跳过
   skipMinutes: 30, // 跳过多久后重试；期间任一次成功即清零计数
-  // 就算主模型自己能看图（如 mimo-v2.6-pro）也拦截识别并注入描述；false = 主模型能看图就不触发。
+  // forceIntercept 不设默认值（首跑模板也不写该键，理由同 cardUi）：未设置 = 自动——
+  // 跟随宿主「模型设置」里该模型的图片开关（开 = 模型自看不指路，关 = 插件是唯一通道必指路）；
+  // 显式 true = 能看图也强制拦截（双重识别换卡片）；显式 false = 能看图就不拦截。
   // 主模型是 flash 小模型时无论如何不触发（识别就是它自己，注入描述纯属重复）
-  forceIntercept: true,
 };
 export const MAX_CACHE_ENTRIES = 200;
 
@@ -370,12 +371,68 @@ export function mainModelKind(modelId) {
   return 'unknown';
 }
 
-// 是否因主模型跳过识别注入：flash 主模型永远跳过（注入描述纯属重复）；
-// 能看图的主模型看 forceIntercept（默认 true = 照常拦截识别注入；显式 false 才跳过）
-export function skipByMainModel(cfg, modelId) {
+// 宿主是否会内联图片给该模型：读 ~/.zcode/v2 供应商配置里该模型的 inputFormat.supportsImage。
+// 桌面端「模型设置」的图片勾选框写的就是它（provider_config.json 的 modelConfigRules）。
+// 返回 true/false；模型不在配置表里（读不到）返回 undefined，调用方按保守旧逻辑处理。
+export function modelSupportsImage(modelId) {
+  const bare = String(modelIdOf(modelId) || '').toLowerCase();
+  if (!bare) return undefined;
+  const providerPrefix = String(modelId || '').includes('/') ? String(modelId).split('/')[0] : '';
+  // 主表：provider_config.json 的 modelConfigRules.providerModelRules（模型设置写入处）
+  const rules =
+    readJson(path.join(HOME, '.zcode', 'v2', 'provider_config.json'))?.config?.modelConfigRules
+      ?.providerModelRules;
+  if (Array.isArray(rules)) {
+    const candidates = rules.filter((r) => r?.modelId && String(r.modelId).toLowerCase() === bare);
+    const hit = (providerPrefix ? candidates.find((r) => r.providerId === providerPrefix) : null) || candidates[0];
+    const v = hit?.config?.properties?.inputFormat?.supportsImage;
+    if (typeof v === 'boolean') return v;
+  }
+  // 副表：config.json 的 provider.<id>.models.<模型名>（部分形态也带 inputFormat）
+  const v2 = readJson(path.join(HOME, '.zcode', 'v2', 'config.json')) || {};
+  for (const p of Object.values(v2.provider || {})) {
+    for (const [mid, m] of Object.entries(p?.models || {})) {
+      if (String(mid).toLowerCase() !== bare) continue;
+      const v = m?.properties?.inputFormat?.supportsImage ?? m?.inputFormat?.supportsImage;
+      if (typeof v === 'boolean') return v;
+    }
+  }
+  return undefined;
+}
+
+// 是否因主模型跳过识别注入（1.7.9 起与宿主图片开关联动）：
+// - flash 主模型永远跳过（识别就是它自己，注入描述纯属重复）；
+// - vision 类主模型：
+//     宿主图片开关关（模型看不到图）→ 必拦截，forceIntercept 不豁免——插件是唯一看图通道；
+//     宿主图片开关开（会内联，模型自己能看）→ 默认跳过；forceIntercept 显式 true 才照旧拦截；
+//     开关读不到（模型不在配置表）→ 旧逻辑：forceIntercept 显式 false 才跳过；
+// - 其他（glm-5.3 等按纯文本处理的）不跳过。
+// 返回 {kind, inline, forceIntercept, skip, reason}，reason 供钩子日志与 /vision status 使用
+export function mainModelDecision(cfg, modelId) {
   const kind = mainModelKind(modelId);
-  if (kind === 'flash') return true;
-  return kind === 'vision' && cfg?.forceIntercept === false;
+  const fi = cfg?.forceIntercept;
+  if (kind === 'flash') {
+    return { kind, inline: undefined, forceIntercept: fi ?? null, skip: true, reason: 'flash 小模型，识别就是它自己' };
+  }
+  if (kind !== 'vision') {
+    return { kind, inline: undefined, forceIntercept: fi ?? null, skip: false, reason: '非视觉类主模型，照常拦截识别' };
+  }
+  const inline = modelSupportsImage(modelId);
+  if (inline === false) {
+    return { kind, inline, forceIntercept: fi ?? null, skip: false, reason: '宿主图片输入已关（不内联），插件是唯一看图通道，必拦截' };
+  }
+  if (inline === true) {
+    return fi === true
+      ? { kind, inline, forceIntercept: fi, skip: false, reason: '模型能看图但 forceIntercept=true，照旧拦截（双重识别换卡片）' }
+      : { kind, inline, forceIntercept: fi ?? null, skip: true, reason: '模型能看图（宿主会内联），默认不指路，避免重复识别' };
+  }
+  return fi === false
+    ? { kind, inline, forceIntercept: fi, skip: true, reason: '图片开关读不到且 forceIntercept=false，跳过' }
+    : { kind, inline, forceIntercept: fi ?? null, skip: false, reason: '图片开关读不到，按旧默认拦截' };
+}
+
+export function skipByMainModel(cfg, modelId) {
+  return mainModelDecision(cfg, modelId).skip;
 }
 
 // 供应商来源两张表：~/.zcode/v2/config.json 的 provider.<id>（优先）与

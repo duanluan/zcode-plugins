@@ -12,7 +12,8 @@
 //
 // 约定：
 // - 主模型名从任务索引反查（tasks.model = "<providerId>/<modelId>"），按名字猜能力：
-//   flash 小模型不触发（识别就是它自己）；能看图的主模型看 forceIntercept 选项（默认照常识别注入）。
+//   flash 小模型不触发（识别就是它自己）；vision 类主模型与宿主「模型设置-图片」开关联动
+//   （开 = 模型自看不指路；关 = 必指路），forceIntercept 显式 true 才强制拦截（细则见 vision-lib）。
 // - 配置唯一事实来源 ~/.zcode/zcode-vision.json（/vision-* 命令与 zcode-pro 面板编辑同一文件）。
 
 import { createHash } from 'node:crypto';
@@ -35,25 +36,28 @@ import {
   resolveChainProxies,
   runChain,
   sessionModelId,
-  skipByMainModel,
+  mainModelDecision,
 } from './vision-lib.mjs';
 
 // 钩子总超时 180s（hooks.json），留 15s 余量自行收尾，避免被强杀后一点输出都没有
 const OVERALL_DEADLINE_MS = 165000;
 
-// 解析 attachmentsSummary：实测真实格式有三种值（ZCode 侧 summarizeTurnAttachments 生成）：
-//   "1:image:/abs/path.png"  拖拽/按路径附加 → 直接读
+// 解析 attachmentsSummary：实测格式有以下几种（ZCode 侧 summarizeTurnAttachments 生成）：
+//   "1:image:/abs/path.png"   拖拽/按路径附加 → 直接读
 //   "1:image:inline:123 chars"（推断的旧格式）→ 轮询 image-cache
-//   "1:image:image.png"     粘贴图片（只给显示文件名，实际落盘在 image-cache）→ 轮询 image-cache
+//   "1:image:image.png"      粘贴图片（只给显示文件名，实际落盘在 image-cache）→ 轮询 image-cache
+//   "1:image"                裸行不带值：主模型 supportsImage=false 时宿主不准备图片内容，
+//                            摘要只剩类型（path/content 都空，summarize 的三元else分支）→ 同样轮询 image-cache 兜底
 function parseImageAttachments(summary) {
   const paths = [];
   let cacheCount = 0;
-  if (typeof summary === 'string' && summary.includes(':image:')) {
-    for (const m of summary.matchAll(/(\d+):image:(\/[^\s,]+|inline:\d+[^\s,]*|[^\s,]+)/g)) {
+  // (?![\w-]) 确保类型名精确为 image（不匹配 1:images 之类）；值部分可缺省（裸行）
+  if (typeof summary === 'string' && /(\d+):image(?![\w-])/.test(summary)) {
+    for (const m of summary.matchAll(/(\d+):image(?![\w-])(?::(\/[^\s,]+|inline:\d+[^\s,]*|[^\s,]+))?/g)) {
       const v = m[2];
       // Windows 绝对路径（C:\ 或 C:/）同样按路径直读，不能落进 inline 轮询分支
-    if (/^([A-Za-z]:[\\/]|\/)/.test(v)) paths.push(v);
-      else cacheCount += 1; // inline 或裸文件名：图片本体都在会话 image-cache 目录里
+      if (v && /^([A-Za-z]:[\\/]|\/)/.test(v)) paths.push(v);
+      else cacheCount += 1; // 裸行、inline、裸文件名、artifact 引用：图片本体都在会话 image-cache 目录里
     }
   }
   return { paths: [...new Set(paths)], cacheCount };
@@ -162,6 +166,14 @@ async function main() {
     return runTest(process.argv.find((a, i) => i > 1 && !a.startsWith('--')));
   }
 
+  // /vision status 用：打印某主模型的拦截判定（模型类别 / 宿主图片开关 / forceIntercept / 结果与原因）
+  const decIdx = process.argv.indexOf('--decision');
+  if (decIdx > -1) {
+    const model = process.argv[decIdx + 1] || '';
+    console.log(JSON.stringify({ model: model || '(未提供)', ...mainModelDecision(loadConfig(), model) }, null, 2));
+    process.exit(0);
+  }
+
   let raw = '';
   try {
     raw = fs.readFileSync(0, 'utf8');
@@ -178,14 +190,22 @@ async function main() {
   const cfg = loadConfig();
   if (!cfg.enabled) process.exit(0);
 
+  // 入口日志：记录本次触发收到的原始附件摘要。此前钩子对"没收到图片标记"是静默退出，
+  // 排查时无法区分"宿主没调钩子"和"调了但摘要里没有 image 行"两种情况
+  log(
+    `UserPromptSubmit session=${String(payload.session_id || '_')} ` +
+      `attachmentsSummary=${JSON.stringify(payload.attachmentsSummary ?? null)}`,
+  );
+
   const { paths, cacheCount } = parseImageAttachments(payload.attachmentsSummary);
   if (!paths.length && !cacheCount) process.exit(0);
 
-  // 主模型感知：flash 小模型不触发（识别就是它自己，注入描述纯属重复）；
-  // 其他能看图的主模型看 forceIntercept（默认 true = 照常拦截识别注入）
+  // 主模型感知：flash 小模型不触发；vision 类主模型与宿主图片开关联动
+  //（开 = 模型自看不指路，关 = 必指路），forceIntercept 显式 true 才强制拦截——细则见 vision-lib
   const mainModel = sessionModelId(payload.session_id);
-  if (skipByMainModel(cfg, mainModel)) {
-    log(`主模型 ${mainModel || '未知'}：按规则跳过识别注入`);
+  const decision = mainModelDecision(cfg, mainModel);
+  if (decision.skip) {
+    log(`主模型 ${mainModel || '未知'}：${decision.reason}，跳过识别注入`);
     process.exit(0);
   }
 

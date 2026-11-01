@@ -36,10 +36,11 @@ zcode-vision 首次安装或配置混乱时运行本向导。目标产物是合�
   "apiTimeoutMs": 120000,
   "compressThresholdKB": 1024,
   "skipAfterFailures": 4,
-  "skipMinutes": 30,
-  "forceIntercept": true
+  "skipMinutes": 30
 }
 ```
+
+（模板不写 forceIntercept：缺省 = 自动，跟随宿主「模型设置」里 vision 类主模型的图片开关。）
 
 3. **问用户**（用 AskUserQuestion 一次问清，允许逐项跳过用默认）：
    - **跟随会话供应商（默认第一级）**：默认 `glm-session` 代理带 `"useProvider": "session"`——识别走**当前会话所用供应商**的 baseUrl、key、请求格式，**识别模型优先用内置映射表**（Xiaomi MiMo → `mimo-v2.6-flash`、智谱系 → `glm-5.3-flash`，映射未命中才用代理自己的 model）。若会话供应商指向 headroom（BigModel-Max1/Max2 的 baseURL 就是 8787），跟随它即等于走 headroom，无需也无法再叠加 baseUrl。openai-responses 格式的供应商暂不支持（会报错并跳到下一级）。想固定跟随某个供应商改 `"useProvider": "<供应商名或ID>"`，想完全直连则删掉 useProvider 并自填 baseUrl/key。旧版未自定义的配置会在下次使用时自动升级到本默认。
@@ -47,7 +48,7 @@ zcode-vision 首次安装或配置混乱时运行本向导。目标产物是合�
    - **API key**：默认留空自动获取（依次尝试环境变量 `GLM_API_KEY` → `~/.zcode/v2/config.json` 里 bigmodel 供应商的 key，默认即可用）。**不要引导用户在对话里粘贴 key**（会留在会话记录里）；确要显式配置，告知用户事后执行 `/vision-proxy edit <名称> apiKey=<key>` 或直接编辑 `~/.zcode/zcode-vision.json`。
    - **是否走本地 headroom**：只影响 `glm-flash` 直连兜底这一级——走则 baseUrl 改为 `http://127.0.0.1:8787`（format 按上游保持 anthropic；依赖 headroom 在运行——headroom 插件会在会话启动时自动拉起它）。会话供应商本身指向 headroom 时，`glm-session` 跟随它已等于走 headroom，这级无需再改。并说明：不走 headroom 时，识别文字带给主模型后同样会随请求被 headroom 压缩，这个选择只影响「识别调用本身」是否经代理。
    - **大图压缩阈值 compressThresholdKB**（可跳过用默认）：超过该大小（KB）的图先压缩再识别（最长边 2000、JPEG85）；上游限制原始图约 3.9MB/最长边 2000，大图不压会被拒或超时。默认 1024；0 = 不压缩（除非确认图片都很小，不推荐）。写入配置顶层，事后用 `/vision config compressThresholdKB=<值>` 调整。
-   - **主模型能看图时是否仍拦截 forceIntercept**（可跳过用默认）：默认 true——就算主模型支持图片输入（如 mimo-v2.6-pro）也拦截图片、交给视觉代理识别并注入描述文字。设为 false 则主模型能看图时直接放行、不触发钩子。注意：主模型是 flash 小模型（glm-5.3-flash / mimo-v2.6-flash 等）时无论如何不拦截（识别就是它自己，注入描述纯属重复）。事后用 `/vision config forceIntercept=<true|false>` 或 zcode-pro 面板调整。
+   - **主模型能看图时的策略 forceIntercept**（可跳过用默认）：默认**自动（配置里不写该键）**——跟随宿主「模型设置」里 vision 类主模型的图片开关：开关开 = 模型自己看图、钩子不指路；开关关 = 模型看不到图、钩子必走识别（tool 模式指路 vision_ask、有卡片，inject 模式后台注入）。想无视开关、能看图的模型也强制走识别代理（接受双重识别换卡片）设 true；想能看图就放行设 false（图片开关关着的模型不受影响，仍必拦截）。主模型是 flash 小模型（glm-5.3-flash / mimo-v2.6-flash 等）时无论如何不拦截（识别就是它自己）。事后用 `/vision config forceIntercept=<true|false>` 或 zcode-pro 面板调整；恢复自动需删掉该键。
    - baseUrl 只需给到 `/api/anthropic`、`/api/paas/v4` 这一层：`anthropic` 格式自动补 `/v1/messages`，`openai` 格式自动补 `/chat/completions`。
 4. **写入**：python3 修改对应字段后 cat 确认。
 5. **验证**：定位钩子脚本并运行测试（同 /vision test 的做法）：
@@ -56,4 +57,4 @@ zcode-vision 首次安装或配置混乱时运行本向导。目标产物是合�
 node "$(ls -d ~/.zcode/cli/plugins/cache/duanluan-zcode-plugins/zcode-vision/*/hooks/vision-hook.mjs 2>/dev/null | head -1 || echo /home/njcm/workspaces/my/projects/zcode/zcode-plugins/ui-plugins/zcode-vision/hooks/vision-hook.mjs)" --test
 ```
 
-6. **收尾**：告诉用户后续管理命令（/vision-proxy 增删代理、/vision-chain 配链与模式、/vision status 看状态、/vision off 关闭），以及 zcode-pro 设置面板可图形化编辑同一配置。
+6. **收尾**：告诉用户后续管理命令（/vision-proxy 增删代理、/vision-chain 配链与模式、/vision status 看状态、/vision off 关闭），以及 zcode-pro 设置面板可图形化编辑同一配置。最后带一句识图策略口诀：模型设置里图片开关**开 = 模型自看（无识别卡片）**，**关 = 走识别（tool 模式经 vision_ask、有识别卡片，inject 模式后台注入）**；`forceIntercept=true` 可强制能看图的模型也走识别代理（会双重识别），默认自动无需设置。

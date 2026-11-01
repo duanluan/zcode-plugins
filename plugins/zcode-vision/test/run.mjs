@@ -1,5 +1,5 @@
 // zcode-vision 回归测试：node ui-plugins/zcode-vision/test/run.mjs
-// 覆盖：格式兜底、首选视觉模型映射、连续失败跳过、主模型感知（flash 跳过/forceIntercept）、
+// 覆盖：格式兜底、首选视觉模型映射、连续失败跳过、主模型感知（flash 跳过/宿主图片开关联动）、
 // 默认模板与旧配置升级、真实配置解析。
 // 涉及读盘的测试用假 HOME 起子进程（inFakeHome），不碰真实的 ~/.zcode 配置。
 
@@ -266,7 +266,7 @@ t('跳过机制：过期的跳过期不再生效', () => {
   assert.equal(lib.skipUntilOf(cache, 'c'), null);
 });
 
-// —— 主模型感知（flash 跳过 / forceIntercept） ——
+// —— 主模型感知（flash 跳过 / 宿主图片开关联动） ——
 
 t('主模型判断：flash 系 → flash；能看图的 → vision；认不出 → unknown', () => {
   assert.equal(lib.mainModelKind('glm-5.3-flash'), 'flash');
@@ -285,13 +285,55 @@ t('主模型判断：flash 系 → flash；能看图的 → vision；认不出 �
   assert.equal(lib.mainModelKind('glm-5.3$max'), 'unknown');
 });
 
-t('主模型跳过：flash 永远跳过；能看图看 forceIntercept（默认 true 照常识别）', () => {
-  assert.equal(lib.skipByMainModel({ forceIntercept: true }, 'mimo-v2.6-flash'), true);
-  assert.equal(lib.skipByMainModel({ forceIntercept: true }, 'mimo-v2.6-pro'), false);
-  assert.equal(lib.skipByMainModel({ forceIntercept: false }, 'mimo-v2.6-pro'), true);
-  assert.equal(lib.skipByMainModel({}, 'mimo-v2.6-pro'), false); // 缺省 = true
-  assert.equal(lib.skipByMainModel({ forceIntercept: false }, 'glm-5.3'), false); // 纯文本照常识别
-  assert.equal(lib.skipByMainModel({ forceIntercept: false }, null), false); // 认不出照常识别
+t('主模型跳过：flash 永远跳过；图片开关读不到时维持旧默认（显式 false 才跳过）', () => {
+  // 假 HOME 里不写供应商配置 → modelSupportsImage 返回 undefined，走保守旧逻辑
+  const { result: r } = inFakeHome(null, `
+    return {
+      flash: lib.skipByMainModel({ forceIntercept: true }, 'mimo-v2.6-flash'),
+      vT: lib.skipByMainModel({ forceIntercept: true }, 'mimo-v2.6-pro'),
+      vF: lib.skipByMainModel({ forceIntercept: false }, 'mimo-v2.6-pro'),
+      vAuto: lib.skipByMainModel({}, 'mimo-v2.6-pro'),
+      unknown: lib.skipByMainModel({ forceIntercept: false }, 'glm-5.3'),
+      null: lib.skipByMainModel({ forceIntercept: false }, null),
+    };`);
+  assert.equal(r.flash, true);
+  assert.equal(r.vT, false);
+  assert.equal(r.vF, true);
+  assert.equal(r.vAuto, false); // 开关读不到：缺省维持旧默认（照常拦截）
+  assert.equal(r.unknown, false); // 纯文本照常识别
+  assert.equal(r.null, false); // 认不出照常识别
+});
+
+t('主模型跳过：与宿主「模型设置」图片开关联动（1.7.9 新默认）', () => {
+  // provider_config.json 的 modelConfigRules 是桌面端「模型设置」图片勾选框的真实落盘格式
+  const writeModelRules = (inline) => (dir) => {
+    const cfg = { config: { modelConfigRules: { providerModelRules: [
+      { providerId: 'xiaomi-mimo', modelId: 'mimo-v2.6-pro', config: { properties: { inputFormat: { supportsImage: inline, supportsVideo: true } } } },
+    ] } } };
+    fs.writeFileSync(path.join(dir, '.zcode', 'v2', 'provider_config.json'), JSON.stringify(cfg));
+  };
+  const { result: off } = inFakeHome(writeModelRules(false), `
+    return {
+      probe: lib.modelSupportsImage('xiaomi-mimo/mimo-v2.6-pro'),
+      probeBare: lib.modelSupportsImage('mimo-v2.6-pro'),
+      auto: lib.skipByMainModel({}, 'xiaomi-mimo/mimo-v2.6-pro'),
+      fFalse: lib.skipByMainModel({ forceIntercept: false }, 'xiaomi-mimo/mimo-v2.6-pro'),
+      fTrue: lib.skipByMainModel({ forceIntercept: true }, 'xiaomi-mimo/mimo-v2.6-pro'),
+    };`);
+  assert.equal(off.probe, false);
+  assert.equal(off.probeBare, false);
+  assert.equal(off.auto, false); // 开关关：模型看不到图，必拦截
+  assert.equal(off.fFalse, false); // forceIntercept 也不豁免——插件是唯一看图通道
+  assert.equal(off.fTrue, false);
+  const { result: on } = inFakeHome(writeModelRules(true), `
+    return {
+      auto: lib.skipByMainModel({}, 'xiaomi-mimo/mimo-v2.6-pro'),
+      fFalse: lib.skipByMainModel({ forceIntercept: false }, 'xiaomi-mimo/mimo-v2.6-pro'),
+      fTrue: lib.skipByMainModel({ forceIntercept: true }, 'xiaomi-mimo/mimo-v2.6-pro'),
+    };`);
+  assert.equal(on.auto, true); // 开关开 + 未设置：模型自看不指路，避免双重识别
+  assert.equal(on.fFalse, true);
+  assert.equal(on.fTrue, false); // 显式 true：照旧拦截（双重识别换卡片）
 });
 
 t('会话模型：tasks.model 列拆出 providerId / modelId', () => {
@@ -352,7 +394,7 @@ t('默认模板：无配置文件时生成默认单级 session 并写盘', () =>
   assert.equal(written.proxies.length, 1);
   assert.equal(written.skipAfterFailures, 2);
   assert.equal(written.skipMinutes, 30);
-  assert.equal(written.forceIntercept, true);
+  assert.equal('forceIntercept' in written, false); // 模板不写该键：缺省 = 自动（跟随模型设置图片开关）
 });
 
 t('旧配置升级：v1 单代理默认 → 单级 session', () => {

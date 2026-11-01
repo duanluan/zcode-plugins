@@ -12,7 +12,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { askImage, cardHeartbeat, cardUiAllowed, loadConfig, log, readSandboxRegistry, writeSandboxRegistry } from './vision-lib.mjs';
 
-const SERVER_INFO = { name: 'zcode-vision', version: '1.1.0' };
+const SERVER_INFO = { name: 'zcode-vision', version: '1.7.9' };
 const PROTOCOL_VERSION = '2024-11-05';
 const PANEL_URI = 'ui://zcode-vision/panel.html';
 const VISION_ASK_META = { ui: { resourceUri: PANEL_URI, visibility: ['model', 'app'] } }; // 原始挂卡配置（tools/list 动态摘挂的基准）

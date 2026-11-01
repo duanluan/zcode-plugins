@@ -7,19 +7,20 @@
 <style>
   :root {
     --bg: #fafafa; --panel: #ffffff; --text: #1f2328; --muted: #656d76;
-    --border: #d8dee4; --accent: #0969da;
+    --border: #d8dee4; --accent: #0969da; --hover: #eef1f5;
     --mono: ui-monospace, "Cascadia Code", Consolas, Menlo, monospace;
   }
   [data-theme="dark"] {
     --bg: #14171a; --panel: #1c2126; --text: #e6edf3; --muted: #9198a1;
-    --border: #323941; --accent: #4493f8;
+    --border: #323941; --accent: #4493f8; --hover: #262c33;
   }
   * { box-sizing: border-box; }
   body {
-    margin: 0; padding: 12px; background: var(--bg); color: var(--text);
+    /* 背景透明：卡片容器或壁纸从底下透出（zcode-pro 壁纸引擎场景） */
+    margin: 0; padding: 12px; background: transparent; color: var(--text);
     font: 13px/1.5 -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   }
-  .qa { margin-bottom: 10px; }
+  .qa { margin-bottom: 10px; background: color-mix(in srgb, var(--panel) 72%, transparent); border-radius: 8px; padding: 6px 10px; }
   .qa .q { color: var(--muted); margin-bottom: 4px; }
   .qa .q b { color: var(--text); font-weight: 600; }
   .qa .a { word-break: break-word; }
@@ -43,7 +44,7 @@
   .imagewrap img { max-width: 100%; max-height: 48vh; }
   button {
     padding: 4px 10px; border: 1px solid var(--border); border-radius: 6px;
-    background: var(--panel); color: var(--text); cursor: pointer;
+    background: color-mix(in srgb, var(--panel) 88%, transparent); color: var(--text); cursor: pointer;
   }
   button:hover { background: var(--hover); }
   .hint { color: var(--muted); font-size: 12px; }
