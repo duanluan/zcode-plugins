@@ -63,10 +63,13 @@ sync_plugin() {
     return 1
   fi
   local ver
-  ver="$(manifest_version "$manifest")"
+  # 版本号读不到就停：ver 为空时 dst 会指到版本目录的父目录，rsync --delete 删光
+  # 该插件的全部缓存。本函数常在 `|| 失败计数` 上下文里跑，set -e 不生效，每步自己判
+  ver="$(manifest_version "$manifest")" || return 1
+  [ -n "$ver" ] || return 1
   local dst="$CACHE_ROOT/$name/$ver"
   mkdir -p "$dst"
-  rsync -a --delete --exclude '.git' "$src/" "$dst/"
+  rsync -a --delete --exclude '.git' "$src/" "$dst/" || return 1
   MARKET="$MARKET" update_install_record "$name" "$ver" "$dst"
   echo "✓ $name $ver 已安装到本地：$dst"
 }

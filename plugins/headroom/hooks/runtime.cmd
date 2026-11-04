@@ -12,9 +12,15 @@ NODE_BIN=""
 if command -v node >/dev/null 2>&1; then
   NODE_BIN=$(command -v node)
 else
-  for nvm_node in "${HOME:-}"/.nvm/versions/node/*/bin/node; do
-    if [ -x "$nvm_node" ]; then NODE_BIN="$nvm_node"; break; fi
-  done
+  # 版本目录取版本号最大者：目录字典序会选中 v10、v8 这类旧版本
+  nvm_dir=$(
+    for d in "${HOME:-}"/.nvm/versions/node/*; do
+      [ -x "$d/bin/node" ] && printf '%s\n' "${d##*/}"
+    done | sort -V | tail -n 1
+  )
+  if [ -n "$nvm_dir" ]; then
+    NODE_BIN="${HOME:-}/.nvm/versions/node/$nvm_dir/bin/node"
+  fi
   if [ -z "$NODE_BIN" ]; then
     for c in /usr/local/bin/node /usr/bin/node /opt/homebrew/bin/node \
              "${HOME:-}/.local/bin/node" "${HOME:-}/miniforge3/bin/node" \

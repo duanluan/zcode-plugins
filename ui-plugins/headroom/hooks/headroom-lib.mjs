@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Windows 原生实现的共享库（对应 POSIX 侧的 headroom-lib.sh）：配置读写、电源状态
-// 检测、压缩后端决策、代理进程管理、监视器单实例。被 hooks/ensure-proxy.mjs 与
-// hooks/power-watch.mjs 复用（import 使用，不直接执行）。
+// 检测、压缩后端决策、代理进程管理、监视器单实例、生命周期动作互斥锁。被
+// hooks/ensure-proxy.mjs、hooks/hr-multi.mjs 与 hooks/power-watch.mjs 复用
+//（import 使用，不直接执行）。
 //
 // 配置文件 ~/.zcode/headroom.json（可选，扁平 JSON，configSet 重写整文件但保留
 // providers/router/instances 等其他键）：
@@ -17,7 +18,7 @@
 
 import { spawn, execFile } from 'node:child_process';
 import http from 'node:http';
-import { closeSync, existsSync, openSync, readdirSync, readFileSync, rmSync, writeFileSync, writeSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
@@ -31,12 +32,23 @@ export const proxyLog = () => path.join(home, '.zcode-headroom-proxy.log');
 
 // —— 配置读写（三个电源/压缩键带默认值；configSet 只改目标键，其余键原样保留）——
 
+// 临时文件加改名的原子写：直接 writeFileSync 写一半被强杀（钩子超时常见）会留下
+// 截断的文件，下次读配置/状态直接失败。0600：配置里可能带供应商 key，别让同机其他用户读到
+export function writeFileAtomic(file, data) {
+  const tmp = `${file}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
+  writeFileSync(tmp, data, { encoding: 'utf8', mode: 0o600 });
+  renameSync(tmp, file);
+}
+
 function readConfigRaw() {
   try { return JSON.parse(readFileSync(configFile(), 'utf8')); } catch { return {}; }
 }
 
 export function configGet(key, dflt) {
   const v = readConfigRaw()[key];
+  // 布尔值按 1/0 返回：历史版本与手编配置会写 true/false，sh 侧读到是字符串
+  // "true"/"false" 并按 1|true→battery 映射，这里对齐同一套映射输入
+  if (typeof v === 'boolean') return v ? '1' : '0';
   if (typeof v === 'number' && Number.isFinite(v)) return String(v);
   return typeof v === 'string' && v.trim() ? v.trim() : dflt;
 }
@@ -52,7 +64,7 @@ export function configSet(key, value) {
   else if (key === 'powerSaveCpu') cfg.powerSaveCpu = ['battery', 'saver'].includes(value) ? value : 'off';
   else if (key === 'powerWatchInterval') cfg.powerWatchInterval = Number(value) || 60;
   else { console.error(`hr_config_set: 未知键 ${key}`); process.exit(1); }
-  writeFileSync(configFile(), JSON.stringify(cfg, null, 2) + '\n', 'utf8');
+  writeFileAtomic(configFile(), JSON.stringify(cfg, null, 2) + '\n');
 }
 
 // —— 电源状态（PowerShell，与 hr_power_flags_win 同源）——
@@ -191,17 +203,21 @@ export function stateSet(key, value) {
   const lines = existsSync(stateFile()) ? readFileSync(stateFile(), 'utf8').split(/\r?\n/) : [];
   const kept = lines.filter((l) => l && !l.startsWith(`${key}=`));
   kept.push(`${key}=${value}`);
-  writeFileSync(stateFile(), kept.join('\n') + '\n', 'utf8');
+  writeFileAtomic(stateFile(), kept.join('\n') + '\n');
 }
 
 // —— 代理进程管理 ——
 
 export function appendLog(text) {
+  let fd = -1;
   try {
-    const fd = openSync(proxyLog(), 'a');
+    fd = openSync(proxyLog(), 'a');
     writeSync(fd, text);
-    closeSync(fd);
   } catch { /* 日志失败不影响主流程 */ }
+  finally {
+    // closeSync 放 finally：writeSync 抛错时不把 fd 泄漏掉
+    if (fd >= 0) { try { closeSync(fd); } catch { /* ignore */ } }
+  }
 }
 
 function logStamp() {
@@ -221,8 +237,13 @@ export async function proxyStart(port, backend) {
   let child;
   try {
     const logFd = openSync(proxyLog(), 'a');
-    child = spawn(bin, ['proxy', '--port', String(port)], { detached: true, stdio: ['ignore', logFd, logFd], env, windowsHide: true });
-    child.unref();
+    try {
+      child = spawn(bin, ['proxy', '--port', String(port)], { detached: true, stdio: ['ignore', logFd, logFd], env, windowsHide: true });
+      child.unref();
+    } finally {
+      // 子进程已经继承了日志 fd，父进程这份要关掉，否则每启动一次代理漏一个 fd
+      closeSync(logFd);
+    }
   } catch { return false; }
   appendLog(`${logStamp()} Windows_NT ensure-proxy: start headroom proxy port=${port} backend=${backend}\n`);
   stateSet('pid', String(child.pid));
@@ -251,32 +272,145 @@ export async function proxyStop(port) {
 }
 
 // —— 电源监视器（power-watch.mjs）单实例管理 ——
+// pid 文件内容是"pid 启动时间"两个字段：带启动时间是为了让监视器退出时能核对
+// 文件还是自己写的那份，不会误删接班的新监视器的 pid 文件
+
+function watchPidLine() {
+  try {
+    return Number(readFileSync(watchPidFile(), 'utf8').trim().split(/\s+/)[0]) || 0;
+  } catch { return 0; }
+}
 
 export function watchRunning() {
-  try {
-    const pid = Number(readFileSync(watchPidFile(), 'utf8').trim()) || 0;
-    if (pid > 0) { process.kill(pid, 0); return true; }
-  } catch { /* pid 文件缺失或进程不在 */ }
+  const pid = watchPidLine();
+  if (pid > 0) {
+    try { process.kill(pid, 0); return true; } catch { /* 进程不在 */ }
+  }
   return false;
 }
 
 export function watchStart(here) {
   if (watchRunning()) return;
+  // 排他创建 pid 文件占位后再拉起：查完再写的窗口里两个调用会各拉一个监视器。
+  // 占位内容写调用方 pid 与秒级时间（与 sh 版同一格式），中途被杀留下可识别的
+  // 失效记录，不会是空文件挡住后续启动
+  const claim = `${process.pid} ${Math.floor(Date.now() / 1000)}\n`;
+  try {
+    writeFileSync(watchPidFile(), claim, { encoding: 'utf8', flag: 'wx' });
+  } catch (err) {
+    if (err?.code !== 'EEXIST') return;
+    // 文件在但 watchRunning 刚判过没在跑：残留记录（占位 pid 已死）才接管；
+    // 占位 pid 还活着说明有另一个调用正在拉起，本次放弃
+    try {
+      const oldPid = Number(readFileSync(watchPidFile(), 'utf8').trim().split(/\s+/)[0]) || 0;
+      const alive = (p) => { try { process.kill(p, 0); return true; } catch { return false; } };
+      if (oldPid && alive(oldPid)) return;
+    } catch { return; }
+    try { writeFileSync(watchPidFile(), claim, 'utf8'); } catch { return; }
+  }
   try {
     const logFd = openSync(proxyLog(), 'a');
-    const child = spawn(process.execPath, [path.join(here, 'power-watch.mjs')],
-      { detached: true, stdio: ['ignore', logFd, logFd], env: process.env, windowsHide: true });
-    child.unref();
-    writeFileSync(watchPidFile(), `${child.pid}\n`, 'utf8');
+    let child;
+    try {
+      child = spawn(process.execPath, [path.join(here, 'power-watch.mjs')],
+        { detached: true, stdio: ['ignore', logFd, logFd], env: process.env, windowsHide: true });
+      child.unref();
+    } finally {
+      // 子进程已经继承了日志 fd，父进程这份要关掉，否则每拉起一次监视器漏一个 fd
+      closeSync(logFd);
+    }
+    writeFileSync(watchPidFile(), `${child.pid} ${Math.floor(Date.now() / 1000)}\n`, 'utf8');
   } catch { /* 监视器起不来不阻塞主流程 */ }
 }
 
 export function watchStop() {
+  let line = '';
+  try { line = readFileSync(watchPidFile(), 'utf8').trim(); } catch { /* 文件不在 */ }
+  const pid = Number(line.split(/\s+/)[0]) || 0;
+  if (pid > 0) { try { process.kill(pid, 0); void taskkill(pid); } catch { /* 已不在 */ } }
+  // 只删自己刚读到的那份 pid 文件：杀进程到删文件之间可能已有新监视器接班写入
   try {
-    const pid = Number(readFileSync(watchPidFile(), 'utf8').trim()) || 0;
-    if (pid > 0) { try { process.kill(pid, 0); void taskkill(pid); } catch { /* 已不在 */ } }
-  } catch { /* ignore */ }
-  rmSync(watchPidFile(), { force: true });
+    if (line && readFileSync(watchPidFile(), 'utf8').trim() === line) {
+      rmSync(watchPidFile(), { force: true });
+    }
+  } catch { /* 文件已不在 */ }
+}
+
+// —— 生命周期动作跨进程互斥（目录锁）——
+// ensure-proxy.mjs 与 hr-multi.mjs 直跑入口、power-watch.mjs 的代理重启共用同一把
+// 锁：几套入口并行动作会抢同一端口、互相删状态文件。锁目录的创建是原子的；抢不到
+// 且持有者存活、锁未超时就按动作决定跳过还是等待；持有者死亡（含强制重启残留的锁）
+// 立即接管；超过 60 秒按悬挂强制接管——钩子 8 秒超时被强杀不走 exit 清理，只能靠
+// 超时兜底。竞争时的两种策略：ensure/start 是自动触发的幂等动作，立刻退出；
+// stop/restart/backend/power 是用户显式操作，最多等 20 秒后强制接管，保证用户的
+// 停止/重启最终生效。status 只读不加锁；锁目录异常（权限等）不拦截动作，尽力而为。
+// 锁目录里写持有者信息（pid + 随机 token）：释放前核对还是自己那份才删——锁可能
+// 已被别人按超时接管，把新锁删掉会让两个动作同时跑。
+// 返回 { status, release }：'held' 抢到锁（进程退出时自动释放，信号处理里调
+// release）；'skipped' 被别的动作挡住且本次可跳过（提示已打印）；'unlocked' 长时间
+// 抢不到，无锁继续（提示已打印）。
+export async function acquireLifecycleLock(action) {
+  const lockDir = process.env.HR_HEADROOM_CONFIG
+    ? path.join(path.dirname(process.env.HR_HEADROOM_CONFIG), 'hr-ensure-test.lock')
+    : path.join(home, '.zcode-headroom-ensure.lock');
+  const token = `${process.pid}-${Math.random().toString(36).slice(2)}`;
+  const holderFile = path.join(lockDir, 'holder');
+  const pidAlive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  const readHolder = () => {
+    try {
+      const [pidLine, tokenLine] = readFileSync(holderFile, 'utf8').split(/\r?\n/);
+      return { pid: Number(pidLine) || 0, token: tokenLine || '' };
+    } catch { return { pid: 0, token: '' }; }
+  };
+  const rmLock = () => { try { rmSync(lockDir, { recursive: true, force: true }); } catch { /* ignore */ } };
+  const tryAcquire = () => {
+    try {
+      mkdirSync(lockDir);
+      writeFileSync(holderFile, `${process.pid}\n${token}\n`, 'utf8');
+    } catch (err) {
+      return err?.code !== 'EEXIST';
+    }
+    // 写完核对 holder 还是自己：mkdir 到写 holder 之间有窗口，别人可能已按悬挂接管
+    const h = readHolder();
+    return h.pid === process.pid && h.token === token;
+  };
+  // 持有者死亡（含强制重启残留）或锁超龄 → 悬挂，可强制接管
+  const lockStale = () => {
+    const h = readHolder();
+    if (!h.pid || !pidAlive(h.pid)) return true;
+    try { return statSync(lockDir).mtimeMs < Date.now() - 60_000; } catch { return true; }
+  };
+  const acquireOrSteal = () => {
+    if (tryAcquire()) return true;
+    if (!lockStale()) return false;
+    rmLock();
+    return tryAcquire();
+  };
+  let acquired = tryAcquire() || acquireOrSteal();
+  if (!acquired && !['stop', 'restart', 'backend', 'power'].includes(action)) {
+    console.log('headroom: 另一个生命周期动作正在执行，本次跳过（动作幂等，跳过无影响）');
+    return { status: 'skipped', release: () => {} };
+  }
+  if (!acquired) {
+    const deadline = Date.now() + 20_000;
+    while (Date.now() < deadline && !(acquired = acquireOrSteal())) await sleep(300);
+    if (!acquired) {
+      rmLock();
+      acquired = tryAcquire();
+      if (!acquired) console.log('headroom: 生命周期锁长时间无法获取，无锁继续执行');
+    }
+  }
+  if (!acquired) return { status: 'unlocked', release: () => {} };
+  const release = () => {
+    // 释放后摘掉自己的 exit 监听器：power-watch 这类常驻进程每次抢锁都挂一个，
+    // 不摘会攒出监听器超限警告
+    process.off('exit', release);
+    const h = readHolder();
+    if (h.pid !== process.pid || h.token !== token) return;
+    rmLock();
+  };
+  process.on('exit', release);
+  return { status: 'held', release };
 }
 
 export function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }

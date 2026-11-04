@@ -54,70 +54,87 @@ hr_status() {
     printf 'saver-detect: %s\n' "$(hr_saver_detect)"
     [ "$(hr_power_save_mode)" = "saver" ] && [ "$(hr_saver_detect)" != "ok" ] && hr_saver_hint
     if hr_watch_running; then
-        printf 'watcher: running (pid %s)\n' "$(cat "$(hr_watch_pidfile)" 2>/dev/null)"
+        printf 'watcher: running (pid %s)\n' "$(hr_watch_pid)"
     else
         printf 'watcher: stopped\n'
     fi
     printf 'config: %s\n' "$(hr_config_file)"
 }
 
-case "${1:-ensure}" in
-    ensure|start)
-        hr_ensure
-        ;;
-    stop)
-        hr_stop
-        printf '已停止插件管理的 Headroom 代理与电源监视器\n'
-        ;;
-    restart)
-        hr_stop
-        sleep 1
-        hr_ensure
-        printf '已重启\n'
-        ;;
+_hr_action="${1:-ensure}"
+case "$_hr_action" in
     status)
         hr_status
         ;;
-    backend)
-        [ -n "${2:-}" ] || { printf '用法: ensure-proxy.sh backend <cpu|auto|onnx|coreml|mps|torch…>\n' >&2; exit 1; }
-        hr_config_set kompressBackend "$2" || exit 1
-        if hr_systemd_managed; then
-            if [ "$2" = "auto" ]; then
-                systemctl --user unset-environment HEADROOM_KOMPRESS_BACKEND
-            else
-                systemctl --user set-environment "HEADROOM_KOMPRESS_BACKEND=$2"
-            fi
-            systemctl --user restart headroom-proxy
-            hr_state_set backend "$2"
-        else
-            hr_stop
-            sleep 1
-            hr_ensure
-        fi
-        printf 'kompressBackend=%s 已写入 %s 并重启代理生效\n' "$2" "$(hr_config_file)"
-        ;;
-    power)
-        case "${2:-}" in
-            battery)
-                hr_config_set powerSaveCpu battery || exit 1
-                hr_watch_start
-                printf '省电自动切换已设为 battery：拔电（电池放电）→ CPU 压缩，插电切回\n'
+    ensure|start|stop|restart|backend|power)
+        # 生命周期动作互斥（与 mjs 版同一把锁，实现在 headroom-lib.sh）：
+        # ensure/start 抢不到静默跳过，其余动作等一会再强制接管。经 ensure-proxy.mjs
+        # 或 hr-multi.mjs 转进来时调用方已持锁（HR_LIFECYCLE_LOCK_HELD=1），跳过加锁
+        hr_lock_acquire "$_hr_action" || exit 0
+        case "$_hr_action" in
+            ensure|start)
+                hr_ensure
                 ;;
-            saver)
-                hr_config_set powerSaveCpu saver || exit 1
-                hr_watch_start
-                printf '省电自动切换已设为 saver：仅系统省电档 → CPU 压缩，退出切回（拔电但档位非省电不动）\n'
-                [ "$(hr_saver_detect)" != "ok" ] && hr_saver_hint
+            stop)
+                hr_stop
+                printf '已停止插件管理的 Headroom 代理与电源监视器\n'
                 ;;
-            off)
-                hr_config_set powerSaveCpu off || exit 1
-                hr_watch_stop
-                printf '省电自动切换已关闭（当前后端保持不变，重启代理后回到 kompressBackend 配置值）\n'
+            restart)
+                _hr_port="${HEADROOM_PROXY_PORT:-$(hr_state_get port 8787)}"
+                hr_stop
+                # 等旧进程真的把端口放出来再启，否则新代理绑不上端口
+                hr_wait_port_free "$_hr_port"
+                hr_ensure
+                printf '已重启\n'
                 ;;
-            *)
-                printf '用法: ensure-proxy.sh power <battery|saver|off>\n  battery 拔电即 CPU；saver 仅省电档 CPU；off 关闭\n' >&2; exit 1
+            backend)
+                [ -n "${2:-}" ] || { printf '用法: ensure-proxy.sh backend <cpu|auto|onnx|coreml|mps|torch…>\n' >&2; exit 1; }
+                hr_config_set kompressBackend "$2" || exit 1
+                if hr_systemd_managed; then
+                    if [ "$2" = "auto" ]; then
+                        systemctl --user unset-environment HEADROOM_KOMPRESS_BACKEND
+                    else
+                        systemctl --user set-environment "HEADROOM_KOMPRESS_BACKEND=$2"
+                    fi
+                    systemctl --user restart headroom-proxy
+                    hr_state_set backend "$2"
+                else
+                    _hr_port="${HEADROOM_PROXY_PORT:-$(hr_state_get port 8787)}"
+                    hr_stop
+                    hr_wait_port_free "$_hr_port"
+                    hr_ensure
+                fi
+                printf 'kompressBackend=%s 已写入 %s 并重启代理生效\n' "$2" "$(hr_config_file)"
+                ;;
+            power)
+                # 归一后落盘（1/true→battery、0/false→off）；不在 battery/saver/off
+                # 里的值报用法错误退出 1（与 mjs 版校验一致）
+                _hr_pm=$(printf '%s' "${2:-}" | tr '[:upper:]' '[:lower:]')
+                case "$_hr_pm" in 1|true) _hr_pm=battery ;; 0|false) _hr_pm=off ;; esac
+                case "$_hr_pm" in
+                    battery)
+                        hr_config_set powerSaveCpu "$_hr_pm" || exit 1
+                        hr_watch_start
+                        printf '省电自动切换已设为 battery：拔电（电池放电）→ CPU 压缩，插电切回\n'
+                        ;;
+                    saver)
+                        hr_config_set powerSaveCpu "$_hr_pm" || exit 1
+                        hr_watch_start
+                        printf '省电自动切换已设为 saver：仅系统省电档 → CPU 压缩，退出切回（拔电但档位非省电不动）\n'
+                        [ "$(hr_saver_detect)" != "ok" ] && hr_saver_hint
+                        ;;
+                    off)
+                        hr_config_set powerSaveCpu "$_hr_pm" || exit 1
+                        hr_watch_stop
+                        printf '省电自动切换已关闭（当前后端保持不变，重启代理后回到 kompressBackend 配置值）\n'
+                        ;;
+                    *)
+                        printf '用法: ensure-proxy.sh power <battery|saver|off>\n  battery 拔电即 CPU；saver 仅省电档 CPU；off 关闭\n' >&2; exit 1
+                        ;;
+                esac
                 ;;
         esac
+        hr_lock_release
         ;;
     *)
         printf '用法: ensure-proxy.sh [ensure|start|stop|restart|status|backend <值>|power <battery|saver|off>]\n' >&2

@@ -25,14 +25,21 @@ hr_state_file() { printf '%s\n' "${HOME:-/tmp}/.zcode-headroom-proxy.state"; }
 hr_watch_pidfile() { printf '%s\n' "${HOME:-/tmp}/.zcode-headroom-power-watch.pid"; }
 hr_proxy_log() { printf '%s\n' "${HOME:-/tmp}/.zcode-headroom-proxy.log"; }
 
-# 读扁平 JSON 顶层键（字符串或 true/false 布尔）；文件缺失/键缺失时输出默认值。
+# 读扁平 JSON 顶层键（字符串、true/false 布尔或裸数字）；文件缺失/键缺失时输出默认值。
+# 四种取值各一条 sed 表达式：POSIX BRE 没有 \| \? 这类 GNU 扩展，写成四条更稳。
+# 裸数字那条是给 powerWatchInterval 的——hr_config_set 与 mjs configSet 都把它写成
+# 不带引号的数字，只认引号字符串的旧写法永远读不回来。小数分支放在整数分支前面：
+# 只有整数分支时 "60.5" 会被拆成 "5" 读回来（贪婪前缀把整数部分吃掉）。
 hr_config_get() { # hr_config_get <key> <default>
     _cf=$(hr_config_file)
     _cv=""
     if [ -r "$_cf" ]; then
         _cv=$(sed -n \
             -e 's/.*"'"$1"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
-            -e 's/.*"'"$1"'"[[:space:]]*:[[:space:]]*\(true\|false\)[[:space:]]*\(,\|}\)\?.*/\1/p' \
+            -e 's/.*"'"$1"'"[[:space:]]*:[[:space:]]*true.*/true/p' \
+            -e 's/.*"'"$1"'"[[:space:]]*:[[:space:]]*false.*/false/p' \
+            -e 's/.*"'"$1"'"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' \
+            -e 's/.*"'"$1"'"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' \
             "$_cf" | head -n 1)
     fi
     printf '%s\n' "${_cv:-$2}"
@@ -46,15 +53,20 @@ hr_config_set() { # hr_config_set <key> <value>
     case "$_kk" in
         kompressBackend|powerWatchInterval) ;;
         powerSaveCpu)
-            case "$(printf '%s' "$_kv" | tr '[:upper:]' '[:lower:]')" in
-                battery|saver) ;;
-                *) _kv=off ;;
+            # 归一后写盘（1/true→battery、0/false→off）：以前只拿小写值做判断、写盘
+            # 仍是原字符串，"BATTERY" 这类值会原样进配置，mjs 侧读到只当 off
+            _kv=$(printf '%s' "$_kv" | tr '[:upper:]' '[:lower:]')
+            case "$_kv" in 1|true) _kv=battery ;; 0|false) _kv=off ;; esac
+            case "$_kv" in
+                battery|saver|off) ;;
+                *) printf 'hr_config_set: powerSaveCpu 只接受 battery|saver|off（兼容 1/0/true/false）\n' >&2
+                   return 1 ;;
             esac ;;
         *) printf 'hr_config_set: 未知键 %s\n' "$_kk" >&2; return 1 ;;
     esac
     mkdir -p "$(dirname "$(hr_config_file)")" 2>/dev/null
     python3 - "$_kk" "$_kv" "$(hr_config_file)" <<'PY' || return 1
-import json, sys
+import json, os, sys
 key, val, path = sys.argv[1], sys.argv[2], sys.argv[3]
 try:
     cfg = json.load(open(path, encoding='utf8'))
@@ -72,9 +84,16 @@ if key == 'powerWatchInterval':
         cfg[key] = 60
 else:
     cfg[key] = val
-with open(path, 'w', encoding='utf8') as f:
+# 先写临时文件再改名：这份配置还装着 providers/router/instances，直接重写时
+# 写一半被杀（钩子超时强杀常见）会把整份 JSON 截断。0600：配置里可能带供应商 key，
+# 别让同机其他用户读到（残留的旧临时文件权限可能偏松，写完再补一次 chmod）
+tmp = '%s.%d.tmp' % (path, os.getpid())
+fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+with os.fdopen(fd, 'w', encoding='utf8') as f:
     json.dump(cfg, f, ensure_ascii=False, indent=2)
     f.write('\n')
+os.chmod(tmp, 0o600)
+os.replace(tmp, path)
 PY
 }
 
@@ -84,6 +103,8 @@ hr_power_save_mode() {
     case "$(printf '%s' "$_hr_m" | tr '[:upper:]' '[:lower:]')" in
         battery) printf 'battery\n' ;;
         saver) printf 'saver\n' ;;
+        1|true) printf 'battery\n' ;;
+        0|false) printf 'off\n' ;;
         *) printf 'off\n' ;;
     esac
 }
@@ -267,6 +288,17 @@ hr_port_up() {
     curl -s -o /dev/null --max-time 2 "http://127.0.0.1:$1/health" 2>/dev/null
 }
 
+# 停完等端口真的空出来再启：旧进程还没退出就拉新进程，新进程绑不上端口
+hr_wait_port_free() { # hr_wait_port_free <port>，最多等 5 秒
+    _hr_t=5
+    while hr_port_up "$1"; do
+        [ "$_hr_t" -gt 0 ] || return 1
+        _hr_t=$((_hr_t - 1))
+        sleep 1
+    done
+    return 0
+}
+
 hr_state_get() { # hr_state_get <key> <default>
     _hr_sf=$(hr_state_file)
     _hr_sv=""
@@ -276,25 +308,30 @@ hr_state_get() { # hr_state_get <key> <default>
 
 hr_state_set() { # hr_state_set <key> <value>（同键覆盖）
     _hr_sf=$(hr_state_file)
-    grep -v "^$1=" "$_hr_sf" 2>/dev/null >"${_hr_sf}.tmp"
-    printf '%s=%s\n' "$1" "$2" >>"${_hr_sf}.tmp"
-    mv "${_hr_sf}.tmp" "$_hr_sf"
+    # 临时文件带 pid 后缀再改名：固定名 .tmp 会被并发调用互相写坏，改名是原子的
+    _hr_st="${_hr_sf}.$$.tmp"
+    grep -v "^$1=" "$_hr_sf" 2>/dev/null >"$_hr_st"
+    printf '%s=%s\n' "$1" "$2" >>"$_hr_st"
+    mv "$_hr_st" "$_hr_sf"
 }
 
 # 后台启动代理并写状态文件。hr_proxy_start <port> <backend>
+# 动作段抢生命周期锁（抢不到按 ensure 语义静默跳过）：几套入口并行动作会抢同一端口。
 hr_proxy_start() {
     _hr_port=$1 _hr_backend=$2
-    _hr_bin=$(hr_find_headroom) || return 1
-    [ -n "$_hr_bin" ] || return 1
+    hr_lock_acquire ensure || return 1
+    _hr_bin=$(hr_find_headroom) || { hr_lock_release; return 1; }
+    if [ -z "$_hr_bin" ]; then hr_lock_release; return 1; fi
+    # </dev/null：别继承钩子的 stdin，后台进程占着管道不放会把调用方挂住
     if [ "$_hr_backend" = "auto" ]; then
         ANTHROPIC_TARGET_API_URL="${HEADROOM_UPSTREAM_ANTHROPIC:-https://open.bigmodel.cn/api/anthropic}" \
         OPENAI_TARGET_API_URL="${HEADROOM_UPSTREAM_OPENAI:-https://open.bigmodel.cn/api/paas/v4}" \
-        nohup "$_hr_bin" proxy --port "$_hr_port" >>"$(hr_proxy_log)" 2>&1 &
+        nohup "$_hr_bin" proxy --port "$_hr_port" >>"$(hr_proxy_log)" 2>&1 </dev/null &
     else
         HEADROOM_KOMPRESS_BACKEND="$_hr_backend" \
         ANTHROPIC_TARGET_API_URL="${HEADROOM_UPSTREAM_ANTHROPIC:-https://open.bigmodel.cn/api/anthropic}" \
         OPENAI_TARGET_API_URL="${HEADROOM_UPSTREAM_OPENAI:-https://open.bigmodel.cn/api/paas/v4}" \
-        nohup "$_hr_bin" proxy --port "$_hr_port" >>"$(hr_proxy_log)" 2>&1 &
+        nohup "$_hr_bin" proxy --port "$_hr_port" >>"$(hr_proxy_log)" 2>&1 </dev/null &
     fi
     printf '%s %s ensure-proxy: start headroom proxy port=%s backend=%s\n' \
         "$(date '+%F %T')" "$(uname -s)" "$_hr_port" "$_hr_backend" >>"$(hr_proxy_log)"
@@ -302,16 +339,20 @@ hr_proxy_start() {
     hr_state_set port "$_hr_port"
     hr_state_set backend "$_hr_backend"
     hr_state_set managed yes
+    hr_lock_release
 }
 
 # 停止代理（优先状态文件里的 pid，回退按端口精确匹配 pkill）并清除状态。
+# 同样包在生命周期锁里（stop 语义：抢不到就等，用户显式停止最终要生效）。
 hr_proxy_stop() { # hr_proxy_stop <port>
+    hr_lock_acquire stop
     _hr_pid=$(hr_state_get pid "")
     if [ -n "$_hr_pid" ] && kill -0 "$_hr_pid" 2>/dev/null; then
         kill "$_hr_pid" 2>/dev/null
     fi
     pkill -f "headroom proxy --port $1" 2>/dev/null
     rm -f "$(hr_state_file)"
+    hr_lock_release
 }
 
 hr_systemd_managed() {
@@ -320,23 +361,130 @@ hr_systemd_managed() {
 }
 
 # ---------------------------------------------------------------------------
-# 电源监视器（power-watch.sh）单实例管理
+# 电源监视器（power-watch.sh）单实例管理。pid 文件内容是"pid 启动时间戳"两字段
+# （与 mjs 版一致）：带启动时间是为了让监视器退出时能核对文件还是自己写的那份，
+# 不会误删接班的新监视器的 pid 文件。
+hr_watch_pid() { # 只取第一段作 pid；空/非数字视为无效
+    _hr_wp=$(head -n 1 "$(hr_watch_pidfile)" 2>/dev/null)
+    _hr_wp=${_hr_wp%% *}
+    case "$_hr_wp" in ''|*[!0-9]*) return 1 ;; esac
+    printf '%s\n' "$_hr_wp"
+}
+
 hr_watch_running() {
-    _hr_pf=$(hr_watch_pidfile)
-    [ -r "$_hr_pf" ] && kill -0 "$(cat "$_hr_pf" 2>/dev/null)" 2>/dev/null
+    _hr_wp=$(hr_watch_pid) || return 1
+    kill -0 "$_hr_wp" 2>/dev/null
 }
 
 hr_watch_start() {
     hr_watch_running && return 0
-    nohup /bin/sh "$HR_PLUGIN_ROOT/hooks/power-watch.sh" >>"$(hr_proxy_log)" 2>&1 &
-    printf '%s\n' "$!" >"$(hr_watch_pidfile)"
+    _hr_pf=$(hr_watch_pidfile)
+    # 残留的失效记录（进程已不在）清掉，别挡住下面的排他创建
+    [ -e "$_hr_pf" ] && ! hr_watch_running && rm -f "$_hr_pf"
+    # 拉起前先排他创建 pid 文件（noclobber）：查与写分成两步时，并发的两次调用都会
+    # 看到"没在跑"，各拉起一个监视器。创建时先写拉起方自己的 pid：拉起方中途被杀
+    # 留下的是可识别的失效记录，不会是空文件把后续启动一直挡住
+    ( set -C; printf '%s %s\n' "$$" "$(date +%s)" >"$_hr_pf" ) 2>/dev/null || return 0
+    # HR_LIFECYCLE_LOCK_HELD 置空给监视器：常驻的它后面自己还要抢生命周期锁
+    HR_LIFECYCLE_LOCK_HELD= nohup /bin/sh "$HR_PLUGIN_ROOT/hooks/power-watch.sh" \
+        >>"$(hr_proxy_log)" 2>&1 </dev/null &
 }
 
 hr_watch_stop() {
-    _hr_pf=$(hr_watch_pidfile)
-    if [ -r "$_hr_pf" ]; then
-        _hr_wpid=$(cat "$_hr_pf" 2>/dev/null)
-        [ -n "$_hr_wpid" ] && kill "$_hr_wpid" 2>/dev/null
-        rm -f "$_hr_pf"
+    _hr_wline=$(tr -d '\r' <"$(hr_watch_pidfile)" 2>/dev/null)
+    _hr_wpid=$(hr_watch_pid) && kill "$_hr_wpid" 2>/dev/null
+    # 只删自己刚读到的那份 pid 文件：杀进程到删文件之间可能已有新监视器接班写入，
+    # 无条件删会把接班者的登记删掉、下次再拉起一个变双监视器
+    if [ -n "$_hr_wline" ] && [ "$(tr -d '\r' <"$(hr_watch_pidfile)" 2>/dev/null)" = "$_hr_wline" ]; then
+        rm -f "$(hr_watch_pidfile)"
     fi
+}
+
+# ---------------------------------------------------------------------------
+# 生命周期动作互斥锁（与 mjs 版 acquireLifecycleLock 同语义）：ensure-proxy.sh 的
+# 动作入口、hr_proxy_start/stop、power-watch.sh 的切后端段共用同一把锁目录——几套
+# 入口并行动作会抢同一端口、互相删状态文件。锁目录用 mkdir 原子创建；抢不到时按动作
+# 决定：ensure/start 是幂等的自动动作，静默跳过；stop/restart/backend/power 是用户
+# 显式操作，最多等 20 秒后强制接管。持有者死亡或抢锁超过 60 秒视为悬挂的锁，直接强制接管——钩子
+# 30 秒超时被强杀不走释放，只能靠超时兜底。锁目录里写持有者（pid + 随机 token +
+# 抢锁时间三行）：释放前核对还是自己那份才删——锁可能已被别人强制接管，把新锁删掉
+# 会让两个动作同时跑。经 ensure-proxy.mjs / hr-multi.mjs 转进来时调用方已持同一把锁
+# （它们 spawn 时置 HR_LIFECYCLE_LOCK_HELD=1），见到该变量跳过加锁，避免父子互锁。
+# 同一进程内可重入：已持锁的入口再调 hr_proxy_start/stop 不重复抢。
+HR_LOCK_TOKEN=""
+HR_LOCK_DEPTH=0
+
+hr_lock_path() {
+    if [ -n "${HR_HEADROOM_CONFIG:-}" ]; then
+        printf '%s\n' "$(dirname "$HR_HEADROOM_CONFIG")/hr-ensure-test.lock"
+    else
+        printf '%s\n' "${HOME:-/tmp}/.zcode-headroom-ensure.lock"
+    fi
+}
+
+# 锁里记的持有者还是自己（pid + token 都对）才算持有
+hr_lock_holder_is_us() {
+    _hr_ld=$(hr_lock_path)
+    [ -r "$_hr_ld/holder" ] || return 1
+    [ "$(sed -n '1p' "$_hr_ld/holder" 2>/dev/null)" = "$$" ] || return 1
+    [ "$(sed -n '2p' "$_hr_ld/holder" 2>/dev/null)" = "$HR_LOCK_TOKEN" ]
+}
+
+hr_lock_try() {
+    _hr_ld=$(hr_lock_path)
+    mkdir "$_hr_ld" 2>/dev/null || return 1
+    printf '%s\n%s\n%s\n' "$$" "$HR_LOCK_TOKEN" "$(date +%s)" >"$_hr_ld/holder" 2>/dev/null
+    # mkdir 到写 holder 之间有窗口，写完核对还是自己：中间可能已被别人强制接管
+    hr_lock_holder_is_us
+}
+
+# 持有者死亡，或抢锁超过 60 秒（holder 第三行是抢锁时间）→ 视为悬挂的锁，可强制接管。
+# holder 只有两行（mjs 版写的）时年龄未知，按活着处理不抢
+hr_lock_stale() {
+    _hr_ld=$(hr_lock_path)
+    _hr_hp=$(sed -n '1p' "$_hr_ld/holder" 2>/dev/null)
+    [ -n "$_hr_hp" ] || return 0
+    kill -0 "$_hr_hp" 2>/dev/null || return 0
+    _hr_ht=$(sed -n '3p' "$_hr_ld/holder" 2>/dev/null)
+    case "$_hr_ht" in ''|*[!0-9]*) return 1 ;; esac
+    _hr_now=$(date +%s)
+    [ $((_hr_now - _hr_ht)) -ge 60 ]
+}
+
+# hr_lock_acquire <action>：返回 0=继续（已持锁或按无锁继续），1=跳过本次动作
+hr_lock_acquire() {
+    [ -n "${HR_LIFECYCLE_LOCK_HELD:-}" ] && return 0
+    if [ "$HR_LOCK_DEPTH" -gt 0 ]; then
+        HR_LOCK_DEPTH=$((HR_LOCK_DEPTH + 1))
+        return 0
+    fi
+    HR_LOCK_TOKEN="$$-$(head -c 8 /dev/urandom 2>/dev/null | od -An -tx1 | tr -d ' \n')"
+    hr_lock_try && { HR_LOCK_DEPTH=1; return 0; }
+    hr_lock_stale && { rm -rf "$(hr_lock_path)" 2>/dev/null
+                       hr_lock_try && { HR_LOCK_DEPTH=1; return 0; }; }
+    case "$1" in
+        stop|restart|backend|power) ;; # 用户显式操作：等一会再强制接管
+        *) return 1 ;;
+    esac
+    _hr_n=0
+    while [ "$_hr_n" -lt 20 ]; do
+        sleep 1
+        _hr_n=$((_hr_n + 1))
+        hr_lock_try && { HR_LOCK_DEPTH=1; return 0; }
+        hr_lock_stale && { rm -rf "$(hr_lock_path)" 2>/dev/null
+                           hr_lock_try && { HR_LOCK_DEPTH=1; return 0; }; }
+    done
+    # 长时间抢不到：无锁继续（与 mjs 版一致），释放时核对不是自己的不会误删
+    rm -rf "$(hr_lock_path)" 2>/dev/null
+    hr_lock_try && { HR_LOCK_DEPTH=1; return 0; }
+    return 0
+}
+
+# 嵌套到最外层才真正释放；不是自己持有的锁不动
+hr_lock_release() {
+    [ "$HR_LOCK_DEPTH" -gt 0 ] || return 0
+    HR_LOCK_DEPTH=$((HR_LOCK_DEPTH - 1))
+    [ "$HR_LOCK_DEPTH" -eq 0 ] || return 0
+    hr_lock_holder_is_us || return 0
+    rm -rf "$(hr_lock_path)" 2>/dev/null
 }

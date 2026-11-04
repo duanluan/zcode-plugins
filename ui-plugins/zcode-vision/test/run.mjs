@@ -1,6 +1,6 @@
 // zcode-vision 回归测试：node ui-plugins/zcode-vision/test/run.mjs
 // 覆盖：格式兜底、首选视觉模型映射、连续失败跳过、主模型感知（flash 跳过/宿主图片开关联动）、
-// 默认模板与旧配置升级、真实配置解析。
+// 默认模板与旧配置升级、真实形态配置解析（假 HOME 造配置，不读本机 ~/.zcode）。
 // 涉及读盘的测试用假 HOME 起子进程（inFakeHome），不碰真实的 ~/.zcode 配置。
 
 import assert from 'node:assert/strict';
@@ -336,30 +336,31 @@ t('主模型跳过：与宿主「模型设置」图片开关联动（1.7.9 新�
   assert.equal(on.fTrue, false); // 显式 true：照旧拦截（双重识别换卡片）
 });
 
-t('会话模型：tasks.model 列拆出 providerId / modelId', () => {
-  let DatabaseSync = null;
-  try {
-    DatabaseSync = require_('node:sqlite').DatabaseSync;
-  } catch {
-    /* 旧 node 没有 node:sqlite，跳过（lib 有 sqlite3 CLI 回退但这里不建库） */
-  }
-  if (!DatabaseSync) {
-    console.log('  （node:sqlite 不可用，跳过）');
-    return;
-  }
-  const { result } = inFakeHome(
-    (dir) => {
-      const db = new DatabaseSync(path.join(dir, '.zcode', 'v2', 'tasks-index.sqlite'));
-      db.exec('CREATE TABLE tasks (task_id TEXT, model TEXT, updated_at INTEGER)');
-      db.prepare('INSERT INTO tasks VALUES (?,?,?)').run('sess_a', 'xiaomi-mimo/mimo-v2.6-flash$enabled', 1);
-      db.close();
-    },
-    `return { p: lib.sessionProviderId('sess_a'), m: lib.sessionModelId('sess_a'), none: lib.sessionModelId('sess_z') };`,
-  );
-  assert.equal(result.p, 'xiaomi-mimo');
-  assert.equal(result.m, 'mimo-v2.6-flash');
-  assert.equal(result.none, null);
-});
+// node:sqlite 缺失时打"跳过"且不计数（别混进通过数），有才注册用例
+let DatabaseSync = null;
+try {
+  DatabaseSync = require_('node:sqlite').DatabaseSync;
+} catch {
+  /* 旧 node 没有 node:sqlite */
+}
+if (!DatabaseSync) {
+  console.log('跳过（不计数）：会话模型拆分需要 node:sqlite');
+} else {
+  t('会话模型：tasks.model 列拆出 providerId / modelId', () => {
+    const { result } = inFakeHome(
+      (dir) => {
+        const db = new DatabaseSync(path.join(dir, '.zcode', 'v2', 'tasks-index.sqlite'));
+        db.exec('CREATE TABLE tasks (task_id TEXT, model TEXT, updated_at INTEGER)');
+        db.prepare('INSERT INTO tasks VALUES (?,?,?)').run('sess_a', 'xiaomi-mimo/mimo-v2.6-flash$enabled', 1);
+        db.close();
+      },
+      `return { p: lib.sessionProviderId('sess_a'), m: lib.sessionModelId('sess_a'), none: lib.sessionModelId('sess_z') };`,
+    );
+    assert.equal(result.p, 'xiaomi-mimo');
+    assert.equal(result.m, 'mimo-v2.6-flash');
+    assert.equal(result.none, null);
+  });
+}
 
 // —— 默认模板与旧配置升级 ——
 
@@ -423,8 +424,6 @@ t('旧配置升级：改过的配置保持原样（换模型/改模式都不动�
   assert.equal(r2.chainMode, 'pipeline');
 });
 
-// —— 真实配置（读本机 ~/.zcode，验证真实供应商可解析） ——
-
 // —— 卡片名额协调的纯逻辑（cardHeartbeat / cardUiAllowed）——
 t('心跳：新条目登记并返回累计存活数', () => {
   const reg = {};
@@ -462,19 +461,48 @@ t('预算判定：0 = 不限，缺配置同 0', () => {
   assert.equal(lib.cardUiAllowed(reg, {}, now).allowed, true);
 });
 
-t('真实配置：链中代理全部解析成功（无 __missing/__resolveError）', async () => {
-  const cfg = lib.loadConfig();
-  const cps = await lib.resolveChainProxies(cfg, null);
-  assert.ok(cps.length >= 1, '链至少一级（默认单级 session）');
-  for (const p of cps) {
-    assert.ok(!p.__missing, `${p.name} 未定义`);
-    assert.ok(!p.__resolveError, `${p.name}: ${p.__resolveError}`);
-    assert.ok(p.baseUrl && p.apiKey, `${p.name} 缺 baseUrl/apiKey`);
+// —— 真实形态配置：假 HOME 里造一份完整配置（供应商 + 任务索引 + 代理链）跑解析，
+// 不读本机 ~/.zcode（本机有没有配 xiaomi-mimo 不该决定测试结果） ——
+
+// 假 HOME 里配好 xiaomi-mimo 供应商与最近会话（xiaomi-mimo/mimo-v2.6-pro）
+const writeRealisticHome = (dir) => {
+  writeProvider('xiaomi-mimo', {
+    name: 'Xiaomi MiMo',
+    kind: 'anthropic',
+    models: { 'mimo-v2.6-pro': {}, 'mimo-v2.6-flash': {} },
+  })(dir);
+  fs.writeFileSync(path.join(dir, '.zcode', 'zcode-vision.json'), JSON.stringify({
+    chain: ['session', 'glm-flash'],
+    proxies: [
+      { name: 'session', useProvider: 'session', model: '', prompt: lib.DEFAULT_PROMPT },
+      { name: 'glm-flash', useProvider: 'xiaomi-mimo', model: '', format: 'anthropic', prompt: lib.DEFAULT_PROMPT },
+    ],
+  }));
+  const db = new (require_('node:sqlite').DatabaseSync)(path.join(dir, '.zcode', 'v2', 'tasks-index.sqlite'));
+  db.exec('CREATE TABLE tasks (task_id TEXT, model TEXT, deleted INTEGER DEFAULT 0, updated_at INTEGER)');
+  db.prepare('INSERT INTO tasks (task_id, model, updated_at) VALUES (?, ?, 1)').run('sess_t1', 'xiaomi-mimo/mimo-v2.6-pro');
+  db.close();
+};
+
+t('真实形态配置：链中代理全部解析成功（无 __missing/__resolveError）', () => {
+  const { result } = inFakeHome(writeRealisticHome, `
+    const cps = await lib.resolveChainProxies(lib.loadConfig(), null);
+    return cps.map((p) => ({ name: p.name, model: p.model, hasBaseUrl: !!p.baseUrl, hasApiKey: !!p.apiKey, missing: !!p.__missing, err: p.__resolveError || null }));`);
+  assert.equal(result.length, 2);
+  for (const p of result) {
+    assert.ok(!p.missing, `${p.name} 未定义`);
+    assert.ok(!p.err, `${p.name}: ${p.err}`);
+    assert.ok(p.hasBaseUrl && p.hasApiKey, `${p.name} 缺 baseUrl/apiKey`);
   }
+  assert.equal(result[0].model, 'mimo-v2.6-pro', 'session 级跟随会话当前模型');
+  assert.equal(result[1].model, 'mimo-v2.6-flash', '自定义级取首选视觉模型');
 });
 
-t('真实配置：xiaomi-mimo 解析出首选视觉模型 mimo-v2.6-flash', async () => {
-  const r = await lib.resolveProviderRef('xiaomi-mimo', null);
+t('真实形态配置：xiaomi-mimo 解析出首选视觉模型 mimo-v2.6-flash', () => {
+  const { result: r } = inFakeHome(
+    writeRealisticHome,
+    `return lib.resolveProviderRef('xiaomi-mimo', null);`,
+  );
   assert.equal(r.preferredModel, 'mimo-v2.6-flash');
   assert.ok(['anthropic', 'openai'].includes(r.format));
 });

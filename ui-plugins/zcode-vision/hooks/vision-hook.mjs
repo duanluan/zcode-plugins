@@ -123,6 +123,8 @@ function loadPending() {
   const raw = readJson(PENDING_PATH);
   return raw && typeof raw === 'object' ? raw : {};
 }
+// 多会话并发时整份读改写可能丢条目：代价是那张图的追击停一轮，自愈型，不加锁
+//（与识别缓存同一取舍）
 function savePending(p) {
   try { atomicWrite(PENDING_PATH, JSON.stringify(p)); } catch { /* 失败不影响主流程 */ }
 }
@@ -132,10 +134,18 @@ function askedPathsFromLog() {
     const st = fs.statSync(LOG_PATH);
     const start = Math.max(0, st.size - 128 * 1024);
     const fd = fs.openSync(LOG_PATH, 'r');
-    const buf = Buffer.alloc(st.size - start);
-    fs.readSync(fd, buf, 0, buf.length, start);
-    fs.closeSync(fd);
-    for (const m of buf.toString('utf8').matchAll(/ASK:OK (\S+)/g)) out.add(m[1]);
+    try {
+      const buf = Buffer.alloc(st.size - start);
+      const bytesRead = fs.readSync(fd, buf, 0, buf.length, start);
+      // 短读时只取实际读到的字节；路径统一取规范化绝对路径——vision-mcp 的
+      // ASK:OK 记的是 resolve 后的路径，比较侧同样 resolve 才对得上。路径可含
+      // 空格，取到行尾（\S+ 会把带空格的路径截断，图永远清不出 pending）
+      for (const m of buf.subarray(0, bytesRead).toString('utf8').matchAll(/ASK:OK (.+)/g)) {
+        out.add(path.resolve(m[1].trim()));
+      }
+    } finally {
+      fs.closeSync(fd);
+    }
   } catch { /* 日志缺失=没有记录 */ }
   return out;
 }
@@ -242,7 +252,7 @@ async function main() {
     if (Array.isArray(pending[sessKey])) {
       // 清单维护：已识别（日志有 ASK:OK）或文件已不存在的移出；其余保留原轮次
       for (const e of pending[sessKey]) {
-        if (e && e.file && !asked.has(e.file) && fs.existsSync(e.file)) prevMap.set(e.file, e.round || 1);
+        if (e && e.file && !asked.has(path.resolve(e.file)) && fs.existsSync(e.file)) prevMap.set(e.file, e.round || 1);
       }
     }
     // 本轮新图 round 1；旧图 round+1；超过 3 轮的放弃追击——仍出现在本轮指路
@@ -251,7 +261,7 @@ async function main() {
     // 跟踪追击只针对"从未被识别"的
     const tracked = [];
     for (const f of uniq) {
-      if (asked.has(f)) continue;
+      if (asked.has(path.resolve(f))) continue;
       const round = (prevMap.get(f) || 0) + 1;
       if (round <= 3) tracked.push({ file: f, round });
     }
@@ -272,6 +282,7 @@ async function main() {
   const fp = chainFingerprint(chainProxies);
   const results = [];
   const models = new Set();
+  const written = {}; // 本次钩子新写的结果条目（保存时并入盘上最新缓存）
   for (const file of uniq) {
     if (Date.now() - started > OVERALL_DEADLINE_MS) {
       results.push({ file, desc: '', errors: ['超出钩子时间预算，本轮跳过'], cached: false });
@@ -294,14 +305,20 @@ async function main() {
     }
     const { desc, used, errors } = await runChain(cfg, chainProxies, buf, mime);
     if (desc) {
-      cache.entries[key] = { desc, model: used, at: Date.now() };
+      const entry = { desc, model: used, at: Date.now() };
+      cache.entries[key] = entry;
+      written[key] = entry;
       models.add(used);
     } else {
       log(`识别失败 ${file}: ${errors.join(' | ')}`);
     }
     results.push({ file, desc, errors, cached: false });
   }
-  saveCache(cache);
+  // runChain 期间已把失败计数/跳过状态写盘（它自己 loadCache 再 saveCache），不能拿
+  // 循环前的旧缓存整体覆盖回去：重读盘上缓存为底，只并入本次新写的结果条目
+  const merged = loadCache();
+  Object.assign(merged.entries, written);
+  saveCache(merged);
   process.stdout.write(JSON.stringify(buildContext(results, models)));
   process.exit(0);
 }
@@ -350,7 +367,11 @@ function builtinTestImage() {
 }
 
 function writeTmpTestImage() {
-  const p = path.join(fs.realpathSync?.(process.env.TMPDIR || '.') , 'zcode-vision-test.png');
+  // TMPDIR 缺省用系统临时目录；realpath 失败就直接用原路径，不冒泡
+  let dir = process.env.TMPDIR || os.tmpdir();
+  try { dir = fs.realpathSync(dir); } catch { /* 路径解析不了就用原路径 */ }
+  // 先建随机子目录再写：固定文件名若已被换成符号链接，写入会顺着链接覆盖别的文件
+  const p = path.join(fs.mkdtempSync(path.join(dir, 'zcode-vision-test-')), 'zcode-vision-test.png');
   fs.writeFileSync(p, Buffer.from(TEST_IMAGE_B64, 'base64'));
   return p;
 }
@@ -363,7 +384,7 @@ async function runTest(givenFile) {
     const sessions = fs.existsSync(IMAGE_CACHE_ROOT)
       ? fs
           .readdirSync(IMAGE_CACHE_ROOT)
-          .filter((d) => d.startsWith('sess_'))
+          .filter((d) => /^(?:sess|session)_/.test(d))
           .map((d) => path.join(IMAGE_CACHE_ROOT, d))
           .filter((d) => { try { return fs.statSync(d).isDirectory(); } catch { return false; } })
       : [];
@@ -395,8 +416,9 @@ async function runTest(givenFile) {
 }
 
 main().catch((e) => {
-  // 钩子模式：任何未捕获异常都不阻断用户消息；--test 模式：明确报错并以失败退出
-  import('./vision-lib.mjs').then((lib) => lib.log(`未捕获异常：${e?.stack || e}`));
+  // 钩子模式：任何未捕获异常都不阻断用户消息；--test 模式：明确报错并以失败退出。
+  // log 是同步写盘，必须先写完再退出（动态 import 的写法日志还没写完进程就退了）
+  log(`未捕获异常：${e?.stack || e}`);
   if (process.argv.includes('--test')) {
     console.error(`测试失败：${e?.message || e}`);
     process.exit(1);

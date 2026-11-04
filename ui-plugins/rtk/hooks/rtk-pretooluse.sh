@@ -41,7 +41,7 @@ except Exception:
 [ -n "$cmd" ] || exit 0
 
 # 模式开关：hint（默认）= 改写建议；off = 完全放行
-state_dir="${RTK_DIR:-$HOME/.zcode-rtk}"
+state_dir="${RTK_DIR:-${HOME:-}/.zcode-rtk}"
 state="$state_dir/mode"
 if [ ! -f "$state" ]; then
   mkdir -p "$state_dir" 2>/dev/null
@@ -207,8 +207,14 @@ then
   exit 0
 fi
 
-# 由 rtk 判断：rc=3 且输出非空 = 有等价改写；rc=1 / 无输出 = rtk 认为不必改写
-rewritten=$("$RTK" rewrite "$cmd" 2>/dev/null)
+# 由 rtk 判断：rc=3 且输出非空 = 有等价改写；rc=1 / 无输出 = rtk 认为不必改写。
+# 有 timeout 命令就给 rtk 8 秒上限（超时 rc 不是 3，按不必改写放行）：rtk 卡死会
+# 堵住后面的工具调用；没有 timeout 命令（如未装 coreutils 的 macOS）就不包
+if command -v timeout >/dev/null 2>&1; then
+    rewritten=$(timeout 8 "$RTK" rewrite "$cmd" 2>/dev/null)
+else
+    rewritten=$("$RTK" rewrite "$cmd" 2>/dev/null)
+fi
 rc=$?
 [ "$rc" -eq 3 ] || exit 0
 [ -n "$rewritten" ] || exit 0
@@ -232,9 +238,9 @@ print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())
 reminded="$state_dir/reminded"
 [ -f "$reminded/$hash" ] && exit 0
 mkdir -p "$reminded" 2>/dev/null || exit 0
-: >"$reminded/$hash" 2>/dev/null || exit 0
 
-# 提醒记录防无限增长：超过 128 条时清掉最旧的一半
+# 提醒记录防无限增长：超过 128 条时清掉最旧的一半。清理放在写提醒标记之前：
+# 夹在记账和拦截之间被杀，会留下"记了账却没提示"的状态
 entries=$(( $(ls "$reminded" 2>/dev/null | wc -l) + 0 ))
 if [ "$entries" -gt 128 ]; then
   ls -t "$reminded" 2>/dev/null | tail -n +65 |
@@ -248,4 +254,9 @@ fi
   echo "同一命令仅提醒一次；/rtk off 可关闭提醒。"
   echo "压缩结果若缺关键行：先按输出尾部提示 rtk recall <hash> --grep <关键字> 取回（不重跑）；确需完整原文再 rtk proxy <原命令>（会真正重跑）。"
 } >&2
+
+# 提示写完再记账，记账紧跟 exit 2：中间被杀时最多是丢一次提醒（下次还会提醒），
+# 不会记了账却没提示。记账用 noclobber 排他创建，替代"先查后建"——并发的两个钩子
+# 同时查到没提醒过会重复提醒。创建失败 = 并发下别人已记账，或记录写不进去，都放行
+( set -C; : >"$reminded/$hash" ) 2>/dev/null || exit 0
 exit 2

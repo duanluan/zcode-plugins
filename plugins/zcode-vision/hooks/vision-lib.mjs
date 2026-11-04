@@ -10,10 +10,14 @@ import { createRequire } from 'node:module';
 
 const require_ = createRequire(import.meta.url);
 export const HOME = os.homedir();
+// 宿主数据根（v2/、cli/ 等宿主数据）跟 ZCODE_DATA_BASE_DIR 迁移，与官方语义一致：
+// 数据根 = ZCODE_DATA_BASE_DIR（去掉空白后非空才用）|| 主目录，再拼 .zcode。
+// 插件自家的 zcode-vision*.json 仍固定放主目录；下文注释里的 ~/.zcode 均指该数据根
+export const hostDataRoot = () => path.join((process.env.ZCODE_DATA_BASE_DIR || '').trim() || HOME, '.zcode');
 export const CONFIG_PATH = path.join(HOME, '.zcode', 'zcode-vision.json');
 export const CACHE_PATH = path.join(HOME, '.zcode', 'zcode-vision-cache.json');
 export const LOG_PATH = path.join(HOME, '.zcode-vision.log');
-export const IMAGE_CACHE_ROOT = path.join(HOME, '.zcode', 'cli', 'image-cache');
+export const IMAGE_CACHE_ROOT = path.join(hostDataRoot(), 'cli', 'image-cache');
 
 export const DEFAULT_PROMPT =
   '请详细描述这张图片的全部内容。若是界面或图表截图，请先把所有错误、警告、异常状态逐字引用出来（含完整原文），再描述整体布局、文字与关键数据。';
@@ -84,8 +88,10 @@ export function readJson(file) {
 }
 
 export function atomicWrite(file, text) {
-  const tmp = `${file}.tmp-${process.pid}`;
-  fs.writeFileSync(tmp, text);
+  // 临时文件名带 pid+随机后缀：多个进程同时写时各建各的临时文件，不会互相覆盖。
+  // 权限 0600：配置里有明文 API key，zcode-pro 侧同款文件也是 0600
+  const tmp = `${file}.tmp-${process.pid}-${Math.random().toString(36).slice(2)}`;
+  fs.writeFileSync(tmp, text, { encoding: 'utf8', mode: 0o600 });
   fs.renameSync(tmp, file);
 }
 
@@ -135,8 +141,8 @@ function deepEqualUnordered(a, b) {
 }
 
 export function loadConfig() {
-  const onDisk = readJson(CONFIG_PATH);
-  if (!onDisk) {
+  // 只有文件完全不存在才写模板；文件在但读不出（损坏等）时不动文件，按默认值运行
+  if (!fs.existsSync(CONFIG_PATH)) {
     // 首跑生成模板（单级 session：跟随会话与其当前模型），用户可用 /vision-setup 或 zcode-pro 面板修改
     try {
       fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
@@ -150,6 +156,8 @@ export function loadConfig() {
     }
     return { ...DEFAULT_CONFIG };
   }
+  const onDisk = readJson(CONFIG_PATH);
+  if (!onDisk) return { ...DEFAULT_CONFIG };
   // 旧默认（chain/proxies 从未改过，且仍为默认 fallback 模式）自动升级为新默认；
   // 用户改过任何一处（换了模型、填了 key、调过链、改过模式）都不动，保持文件为准
   if (
@@ -158,9 +166,14 @@ export function loadConfig() {
   ) {
     const upgraded = { ...DEFAULT_CONFIG, ...onDisk, chain: DEFAULT_CONFIG.chain, proxies: DEFAULT_CONFIG.proxies };
     try {
-      // 写盘剔除 cardUi（理由见首跑模板注释），返回值保留内存默认，语义不变
-      const toDisk = { ...upgraded };
-      delete toDisk.cardUi;
+      // 写盘做键级合并：只换升级目标键（chain/proxies）、补缺的默认键，其余键保留盘上原值——
+      // 整份覆盖会把 zcode-pro 面板等其他写者的合并修改（如 cardUi）抹掉
+      const fresh = readJson(CONFIG_PATH) || onDisk;
+      const toDisk = { ...fresh, chain: DEFAULT_CONFIG.chain, proxies: DEFAULT_CONFIG.proxies };
+      for (const [k, v] of Object.entries(DEFAULT_CONFIG)) {
+        // cardUi 不补：留给 zcode-pro 的"缺键补 true"判定（理由见首跑模板注释）
+        if (k !== 'cardUi' && !(k in toDisk)) toDisk[k] = v;
+      }
       atomicWrite(CONFIG_PATH, `${JSON.stringify(toDisk, null, 2)}\n`);
       log('配置为未自定义的旧默认模板，已自动升级为默认单级链：session（跟随会话与其当前模型）');
     } catch (e) {
@@ -182,7 +195,7 @@ async function resolveApiKey(proxy) {
     if (v && v.trim()) return v.trim();
   }
   try {
-    const v2 = readJson(path.join(HOME, '.zcode', 'v2', 'config.json'));
+    const v2 = readJson(path.join(hostDataRoot(), 'v2', 'config.json'));
     const providers = v2 && typeof v2.provider === 'object' ? v2.provider : {};
     const order = Object.keys(providers).sort((a, b) => {
       const rank = (id) =>
@@ -219,16 +232,17 @@ export function messagesUrl(baseUrl) {
   return `${u}/v1/messages`;
 }
 
-const MIME_BY_EXT = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp' };
-
-export function sniffMime(buf, file) {
+// 识别图片类型：只认真实魔数（png/jpeg/gif/webp/bmp），认不出返回 null——
+// 调用方据此拒绝，不把非图片文件的内容 base64 外发
+export function sniffMime(buf) {
   if (buf.length > 12) {
     if (buf[0] === 0x89 && buf[1] === 0x50) return 'image/png';
     if (buf[0] === 0xff && buf[1] === 0xd8) return 'image/jpeg';
     if (buf.subarray(0, 4).toString() === 'RIFF' && buf.subarray(8, 12).toString() === 'WEBP') return 'image/webp';
     if (buf.subarray(0, 3).toString() === 'GIF') return 'image/gif';
+    if (buf[0] === 0x42 && buf[1] === 0x4d) return 'image/bmp';
   }
-  return MIME_BY_EXT[path.extname(file).toLowerCase()] || 'image/png';
+  return null;
 }
 
 // 调用超时：单代理 timeoutMs 优先（如赠送额度级 10 秒快速失败），否则全局 apiTimeoutMs，再否则默认值
@@ -265,47 +279,71 @@ export async function callProxy(proxy, { imageB64, mime, text }, cfg) {
     ? { model: proxy.model, max_tokens: 4096, messages: [{ role: 'user', content }] }
     : { model: proxy.model, messages: [{ role: 'user', content }] };
   const timeoutMs = timeoutOf(proxy, cfg);
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-      signal: ctrl.signal,
-    });
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status} ${(await res.text()).slice(0, 200)}`);
+  const runOnce = async (bodyObj) => {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(bodyObj),
+        signal: ctrl.signal,
+      });
+      if (!res.ok) {
+        // 完整响应体只进日志供人排查；对外的错误只带状态码——错误会注入模型上下文，
+        // 带响应体等于让被控上游借错误体向对话发指令
+        log(`HTTP ${res.status}：${await res.text()}`);
+        throw new Error(`HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      // Anthropic 返回 content 数组（可能含 thinking 块，只取 text）；OpenAI 返回 choices[0].message.content
+      let desc;
+      if (anthropic) {
+        desc = (Array.isArray(data?.content) ? data.content : [])
+          .filter((p) => p?.type === 'text')
+          .map((p) => p.text)
+          .join('\n')
+          .trim();
+      } else {
+        const msg = data?.choices?.[0]?.message?.content;
+        desc = Array.isArray(msg)
+          ? msg.filter((p) => p?.type === 'text').map((p) => p.text).join('\n').trim()
+          : typeof msg === 'string'
+            ? msg.trim()
+            : '';
+      }
+      return { desc, data };
+    } catch (e) {
+      // 定时器掐断的请求在 fetch/json 各阶段都表现为 AbortError，统一翻译成可操作的提示
+      const knob = Number(proxy.timeoutMs) > 0 ? 'timeoutMs' : 'apiTimeoutMs';
+      if (ctrl.signal.aborted) {
+        throw new Error(`识别超时（${Math.round(timeoutMs / 1000)} 秒，${knob}）：可重试或缩短问题；经常超时可调大 ${knob}，或换不经 headroom 的直连代理`);
+      }
+      throw e;
+    } finally {
+      clearTimeout(timer);
     }
-    const data = await res.json();
-    // Anthropic 返回 content 数组（可能含 thinking 块，只取 text）；OpenAI 返回 choices[0].message.content
-    let desc;
-    if (anthropic) {
-      desc = (Array.isArray(data?.content) ? data.content : [])
-        .filter((p) => p?.type === 'text')
-        .map((p) => p.text)
-        .join('\n')
-        .trim();
-    } else {
-      const msg = data?.choices?.[0]?.message?.content;
-      desc = Array.isArray(msg)
-        ? msg.filter((p) => p?.type === 'text').map((p) => p.text).join('\n').trim()
-        : typeof msg === 'string'
-          ? msg.trim()
-          : '';
-    }
-    if (!desc) throw new Error('模型返回空内容');
-    return desc;
-  } catch (e) {
-    // 定时器掐断的请求在 fetch/json 各阶段都表现为 AbortError，统一翻译成可操作的提示
-    const knob = Number(proxy.timeoutMs) > 0 ? 'timeoutMs' : 'apiTimeoutMs';
-    if (ctrl.signal.aborted) {
-      throw new Error(`识别超时（${Math.round(timeoutMs / 1000)} 秒，${knob}）：可重试或缩短问题；经常超时可调大 ${knob}，或换不经 headroom 的直连代理`);
-    }
-    throw e;
-  } finally {
-    clearTimeout(timer);
+  };
+  let r = await runOnce(body);
+  // 会先思考的模型把输出预算都花在思考上时只回思考块没有文本，或被 max_tokens
+  // 截断：加大输出预算重试一次。此前这种情况一律报"模型返回空内容"，看不出原因
+  const stopOf = (d) => (anthropic ? d?.stop_reason : d?.choices?.[0]?.finish_reason);
+  const onlyThinking = (d) => (anthropic
+    ? Array.isArray(d?.content) && d.content.some((p) => p?.type === 'thinking')
+    : Boolean(d?.choices?.[0]?.message?.reasoning_content));
+  if (!r.desc && (onlyThinking(r.data) || stopOf(r.data) === 'max_tokens' || stopOf(r.data) === 'length')) {
+    // 重试失败（个别端点不收 max_tokens 会回 400）就保留第一次的结果：报"空内容
+    // + stop_reason"比报一个莫名的 HTTP 400 可操作
+    try {
+      r = await runOnce({ ...body, max_tokens: 16384 });
+    } catch { /* 保留原 r */ }
   }
+  if (!r.desc) {
+    const why = [stopOf(r.data) && `stop_reason=${stopOf(r.data)}`, onlyThinking(r.data) && '只回了思考块']
+      .filter(Boolean).join('，');
+    throw new Error(`模型返回空内容${why ? `（${why}）` : ''}：可重试，或在配置里换模型`);
+  }
+  return r.desc;
 }
 
 // —— 供应商跟随：useProvider = "session"（当前会话所用供应商）或供应商名/ID ——
@@ -313,18 +351,21 @@ export async function callProxy(proxy, { imageB64, mime, text }, cfg) {
 // 会话 → 模型行：tasks.model 列格式 "<providerId>/<modelId>"，返回整行（拿不到返回 null）。
 // sessionId 为空（/vision test 与 MCP 追问无会话上下文）时取最近一个会话的记录。
 function sessionModelRaw(sessionId) {
-  const db = path.join(HOME, '.zcode', 'v2', 'tasks-index.sqlite');
+  const db = path.join(hostDataRoot(), 'v2', 'tasks-index.sqlite');
   if (!fs.existsSync(db)) return null;
   try {
     // 优先 node:sqlite（Node ≥22.5）；不可用或库被占用时退回 sqlite3 CLI
     try {
       const { DatabaseSync } = require_('node:sqlite');
       const d = new DatabaseSync(db, { readOnly: true });
-      const row = sessionId
-        ? d.prepare('SELECT model FROM tasks WHERE task_id = ? ORDER BY updated_at DESC LIMIT 1').get(sessionId)
-        : d.prepare('SELECT model FROM tasks ORDER BY updated_at DESC LIMIT 1').get();
-      d.close();
-      return row?.model ? String(row.model) : null;
+      try {
+        const row = sessionId
+          ? d.prepare('SELECT model FROM tasks WHERE task_id = ? ORDER BY updated_at DESC LIMIT 1').get(sessionId)
+          : d.prepare('SELECT model FROM tasks ORDER BY updated_at DESC LIMIT 1').get();
+        return row?.model ? String(row.model) : null;
+      } finally {
+        d.close();
+      }
     } catch { /* fall through */ }
     // CLI 回退：sessionId 内插进 SQL，先做白名单校验防注入（宿主生成的 id 形如 sess_<uuid>）
     if (sessionId && !/^[\w-]+$/.test(sessionId)) return null;
@@ -380,7 +421,7 @@ export function modelSupportsImage(modelId) {
   const providerPrefix = String(modelId || '').includes('/') ? String(modelId).split('/')[0] : '';
   // 主表：provider_config.json 的 modelConfigRules.providerModelRules（模型设置写入处）
   const rules =
-    readJson(path.join(HOME, '.zcode', 'v2', 'provider_config.json'))?.config?.modelConfigRules
+    readJson(path.join(hostDataRoot(), 'v2', 'provider_config.json'))?.config?.modelConfigRules
       ?.providerModelRules;
   if (Array.isArray(rules)) {
     const candidates = rules.filter((r) => r?.modelId && String(r.modelId).toLowerCase() === bare);
@@ -389,7 +430,7 @@ export function modelSupportsImage(modelId) {
     if (typeof v === 'boolean') return v;
   }
   // 副表：config.json 的 provider.<id>.models.<模型名>（部分形态也带 inputFormat）
-  const v2 = readJson(path.join(HOME, '.zcode', 'v2', 'config.json')) || {};
+  const v2 = readJson(path.join(hostDataRoot(), 'v2', 'config.json')) || {};
   for (const p of Object.values(v2.provider || {})) {
     for (const [mid, m] of Object.entries(p?.models || {})) {
       if (String(mid).toLowerCase() !== bare) continue;
@@ -440,14 +481,14 @@ export function skipByMainModel(cfg, modelId) {
 export function providerTables() {
   const list = [];
   const byId = new Map();
-  const v2 = readJson(path.join(HOME, '.zcode', 'v2', 'config.json')) || {};
+  const v2 = readJson(path.join(hostDataRoot(), 'v2', 'config.json')) || {};
   for (const [id, p] of Object.entries((v2 && typeof v2.provider === 'object' ? v2.provider : {}) || {})) {
     const entry = { id, name: p?.name || id, aliases: [], kind: p?.kind, baseURL: p?.options?.baseURL, apiKey: p?.options?.apiKey, models: Object.keys(p?.models || {}) };
     list.push(entry);
     byId.set(id, entry);
   }
   const rules =
-    readJson(path.join(HOME, '.zcode', 'v2', 'provider_config.json'))?.config?.providerConfigRules?.providerRules || [];
+    readJson(path.join(hostDataRoot(), 'v2', 'provider_config.json'))?.config?.providerConfigRules?.providerRules || [];
   for (const r of rules) {
     if (!r?.providerId) continue;
     // 同一 id 两张表都有（如 config.json 叫 BigModel、规则表叫 BigModel-Max1）：
@@ -564,7 +605,7 @@ export async function exchangeAccountProjectToken(family) {
   if (cached && Date.now() < cached.expiresAt - 5 * 60 * 1000) {
     return { token: cached.token, apiBase: conf.apiBase, expiresAt: cached.expiresAt };
   }
-  const creds = readJson(path.join(HOME, '.zcode', 'v2', 'credentials.json'));
+  const creds = readJson(path.join(hostDataRoot(), 'v2', 'credentials.json'));
   const loginToken = (creds && typeof creds === 'object')
     ? decryptCredentialValue(creds[`oauth:${family}:access_token`]) : '';
   if (!loginToken) throw new Error(`credentials.json 里没有可解的 ${family} 登录令牌（未登录或已过期）`);
@@ -777,6 +818,9 @@ export function loadCache() {
   return c && typeof c.entries === 'object' ? c : { version: 1, entries: {} };
 }
 
+// hook 与 mcp 两个进程都会整份读改写这份缓存，并发可能丢条目：代价是那张图
+// 重识别一次、失败计数少记一次（跳过判定延后一轮），自愈型，与 sandboxes 同一
+// 取舍，不加锁
 export function saveCache(cache) {
   const keys = Object.keys(cache.entries);
   if (keys.length > MAX_CACHE_ENTRIES) {
@@ -916,8 +960,11 @@ export async function askImage(cfg, imageFile, question) {
 // JPEG 质量 85（UI 截图无透明通道，白底合成）；magick 不可用或压缩失败回退原图。返回 { buf, mime }。
 export async function prepareImage(imageFile, thresholdBytes = 1024 * 1024) {
   const raw = fs.readFileSync(imageFile);
+  // 先按魔数确认图片类型：认不出的直接拒绝，不把非图片文件的内容外发
+  const mime = sniffMime(raw);
+  if (!mime) throw new Error(`不是可识别的图片类型（png/jpeg/gif/webp/bmp），拒绝识别：${imageFile}`);
   if (!Number.isFinite(thresholdBytes) || thresholdBytes <= 0 || raw.length <= thresholdBytes) {
-    return { buf: raw, mime: sniffMime(raw, imageFile) };
+    return { buf: raw, mime };
   }
   // 探测跨平台：Windows 没有 sh，直接试 where（PATH 里的 magick/convert）；
   // POSIX 走 sh -c command -v。探测失败一律回退原图
@@ -931,7 +978,7 @@ export async function prepareImage(imageFile, thresholdBytes = 1024 * 1024) {
         cp.execFile('sh', ['-c', 'command -v magick || command -v convert'], (err, out) =>
           resolve(!err && out ? out.trim().split('\n').pop() : null));
       });
-  if (!tool) return { buf: raw, mime: sniffMime(raw, imageFile) };
+  if (!tool) return { buf: raw, mime };
   const out = await new Promise((resolve) => {
     const child = require_('node:child_process').execFile(
       tool,
@@ -942,7 +989,7 @@ export async function prepareImage(imageFile, thresholdBytes = 1024 * 1024) {
     // magick 杀超时保险
     child.on('error', () => resolve(null));
   });
-  return out ? { buf: out, mime: 'image/jpeg' } : { buf: raw, mime: sniffMime(raw, imageFile) };
+  return out ? { buf: out, mime: 'image/jpeg' } : { buf: raw, mime };
 }
 
 function usedLabelOf(p) {

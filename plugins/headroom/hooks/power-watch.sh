@@ -10,7 +10,9 @@
 printf '%s %s power-watch: 启动 pid=%s mode=%s\n' "$(date '+%F %T')" "$(uname -s)" "$$" "$(hr_power_save_mode)" >>"$(hr_proxy_log)"
 [ "$(hr_power_save_mode)" = "saver" ] && [ "$(hr_saver_detect)" != "ok" ] \
     && hr_saver_hint >>"$(hr_proxy_log)"
-printf '%s\n' "$$" >"$(hr_watch_pidfile)"
+# pid 文件写"pid 启动时间戳"两字段（与 mjs 版一致），退出时核对内容还是自己写的那份
+_hr_my_line="$$ $(date +%s)"
+printf '%s\n' "$_hr_my_line" >"$(hr_watch_pidfile)"
 
 _hr_down=0  # 连续不可达轮数：短暂失联（代理重启中）很常见，多轮才判定下线
 while :; do
@@ -58,9 +60,16 @@ while :; do
         if [ "$hr_want" != "$hr_cur" ]; then
             printf '%s %s power-watch: 代理切后端 %s -> %s（重启端口 %s）\n' \
                 "$(date '+%F %T')" "$(uname -s)" "$hr_cur" "$hr_want" "$hr_port" >>"$(hr_proxy_log)"
+            # 停再启整段抢生命周期锁（restart 语义：抢不到就等，切换最终要生效）：
+            # 不抢会和 ensure-proxy 的动作并行，两边同时停/启同一端口的代理
+            hr_lock_acquire restart
             hr_proxy_stop "$hr_port"
-            sleep 1
-            hr_proxy_start "$hr_port" "$hr_want" || break
+            # 等旧进程真的把端口放出来再启，否则新进程绑不上端口
+            hr_wait_port_free "$hr_port"
+            hr_proxy_start "$hr_port" "$hr_want"
+            _hr_rc=$?
+            hr_lock_release
+            [ "$_hr_rc" -eq 0 ] || break
         fi
     else
         printf '%s %s power-watch: 代理非插件管理且非 systemd 单元，退出 pid=%s\n' \
@@ -70,4 +79,8 @@ while :; do
 done
 
 printf '%s %s power-watch: 退出 pid=%s\n' "$(date '+%F %T')" "$(uname -s)" "$$" >>"$(hr_proxy_log)"
-rm -f "$(hr_watch_pidfile)"
+# 只删自己写的那份 pid 文件：启动到退出之间可能已有新监视器接班并重写了内容，
+# 内容对不上就不是自己的，不删（与 mjs 版 power-watch.mjs 同款）
+if [ "$(head -n 1 "$(hr_watch_pidfile)" 2>/dev/null)" = "$_hr_my_line" ]; then
+    rm -f "$(hr_watch_pidfile)"
+fi

@@ -101,18 +101,26 @@ for (const name of names) {
       failed.push(name);
       continue;
     }
-    const esbuild = await import("esbuild");
-    const built = await esbuild.build({
-      entryPoints: [pageTs],
-      bundle: true,
-      format: "iife",
-      target: "es2022",
-      minify: true,
-      charset: "utf8",
-      write: false,
-      legalComments: "none",
-      logLevel: "silent",
-    });
+    let built;
+    try {
+      const esbuild = await import("esbuild");
+      built = await esbuild.build({
+        entryPoints: [pageTs],
+        bundle: true,
+        format: "iife",
+        target: "es2022",
+        minify: true,
+        charset: "utf8",
+        write: false,
+        legalComments: "none",
+        logLevel: "silent",
+      });
+    } catch (e) {
+      // 单个插件打包失败不中止整个构建循环：记入失败列表，继续下一个
+      console.error(`✗ ${name}：esbuild 打包失败（${e?.message || e}）`);
+      failed.push(name);
+      continue;
+    }
     const js = built.outputFiles.map((f) => f.text).join("\n");
     const html = fs.readFileSync(pageHtml, "utf8");
     const marker = "/*__APP_JS__*/";

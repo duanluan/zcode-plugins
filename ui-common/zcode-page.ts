@@ -225,7 +225,8 @@ export function setupCardHeartbeat(
 ): void {
   const POLL_MS = 20_000;
   const pageId = crypto.randomUUID?.() || `p-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  const beat = () => { try { void heartbeat(pageId); } catch { /* 心跳失败下轮再试 */ } };
+  // try 只接得住同步抛错，异步 rejection 要靠 .catch 吞掉（心跳失败下轮再试）
+  const beat = () => { try { heartbeat(pageId)?.catch(() => {}); } catch { /* 心跳失败下轮再试 */ } };
   beat();
   window.setInterval(beat, POLL_MS);
   const bump = () => beat();

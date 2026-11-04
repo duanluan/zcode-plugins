@@ -38,7 +38,7 @@ node ~/.zcode/cli/plugins/cache/duanluan-zcode-plugins/headroom/*/hooks/hr-multi
 4. **用户选定后**，用 python3 做三件事（对每个选中的供应商）：
    - 冲突检查：`sha256(apiKey)` 不得与 `~/.zcode/headroom.json` providers 里已有的 keyHash 重复，重复则停止并说明
    - 改动前备份到**被改文件的同目录**：`~/.zcode/v2/config.json.hr-join.bak`、`~/.zcode/v2/provider_config.json.hr-join.bak`（每次接入刷新；改哪个文件就必须有哪个文件的备份，改完用 `ls` 确认备份真的写出来了）
-   - `~/.zcode/headroom.json` 追加：`{"id": 供应商id, "name": 名称, "upstream": 原 baseURL, "format": 判定格式, "keyHash": sha256(apiKey), "origBaseURL": 原 baseURL}`（保留该文件其他键）
+   - `~/.zcode/headroom.json` 追加：`{"id": 供应商id, "name": 名称, "upstream": 原 baseURL, "format": 判定格式, "keyHash": sha256(apiKey), "origBaseURL": 原 baseURL}`（保留该文件其他键。写入必须先写 `~/.zcode/headroom.json.<pid>.tmp` 临时文件再 `os.replace` 改名，不能 `open('w')` 直接截断重写——这文件同时被插件钩子与 zcode-pro 面板读改写，写一半被中断会把 providers 路由表整个弄丢）
      （providers 的字段结构被 zcode-pro 的 helper.mjs 与 zcode-vision 的 vision-lib.mjs（各有一份 headroomFormatOf）按本表读取来判定协议，改结构时三处同改）
    - 把该供应商的 baseUrl 改为 `http://127.0.0.1:8787`，**落点按类型**：普通自定义供应商改 config.json 的 `options.baseURL`；模板供应商改 provider_config.json 里对应 providerRules 条目的 `config.api.baseUrl`（其余字段一律不动）
    - 模板供应商的 providerRules 条目**同时补写 `config.api.type`**（format 为 anthropic → anthropic-messages，format 为 openai → openai-chat-completions）：地址改成 127.0.0.1:8787 后不再带协议线索，下游按地址推断协议的代码（zcode-pro 面板的供应商列表、视觉代理的请求端点等）会失效，必须有显式类型
@@ -52,9 +52,33 @@ node <插件目录>/hooks/hr-multi.mjs ensure
 
 （非首次直接 `hr-multi.mjs ensure`：路由器按请求读配置，追加供应商无需重启即可路由。）
 
-6. **验证**（key 用该供应商的真实 key，证明"路由 → 实例 → 真实上游"全通）：
-   - anthropic 格式：`curl -sS -m 30 -X POST http://127.0.0.1:8787/v1/messages -H "x-api-key: <key>" -H "Content-Type: application/json" -d '{"model":"<该供应商任一模型>","messages":[{"role":"user","content":"hi"}],"max_tokens":8}'`
-   - openai 格式：同上打 `/v1/chat/completions`，鉴权头用 `Authorization: Bearer <key>`
+6. **验证**（key 用该供应商的真实 key，证明"路由 → 实例 → 真实上游"全通）。key 不要写进命令行参数（ps 可见），也不要 echo/cat 回显出来：由 python3 从配置读 key、经 stdin 的 config 行喂给 `curl --config -`，全程不打印：
+   - anthropic 格式（`<供应商id>` 换成实际 id）：
+
+```bash
+set -o pipefail
+python3 - <<'PY' | curl -sS -m 30 --config - -X POST http://127.0.0.1:8787/v1/messages -H "Content-Type: application/json" -d '{"model":"<该供应商任一模型>","messages":[{"role":"user","content":"hi"}],"max_tokens":8}' || exit 1
+import json, os, sys
+p = os.path.expanduser
+pid = '<供应商id>'
+key = ''
+try:
+    rules = json.load(open(p('~/.zcode/v2/provider_config.json')))['config']['providerConfigRules']['providerRules']
+    key = next((r['config']['access']['apiKey'] for r in rules if r.get('providerId') == pid and r.get('config', {}).get('access', {}).get('apiKey')), '')
+except Exception:
+    pass
+if not key:
+    try:
+        key = json.load(open(p('~/.zcode/v2/config.json')))['provider'][pid]['options']['apiKey']
+    except Exception:
+        sys.exit(1)  # 取不到 key 就整体失败：别让 curl 发出无鉴权的请求、把结论下错
+if not key:
+    sys.exit(1)
+print('header = "x-api-key: %s"' % key.replace('\\', r'\\\\').replace('"', r'\"'))  # 反斜杠与引号都转义，防止 key 截断 config 行
+PY
+```
+
+   - openai 格式：同上打 `/v1/chat/completions`，python3 最后一行换成 `print('header = "Authorization: Bearer %s"' % key.replace('\\', r'\\\\').replace('"', r'\"'))`（同样要做转义）
    - 期望：上游真实应答（200 或上游自身报错均可，说明已到达上游）；502 + "未接入 headroom 压缩路由" = key 路由没配上，检查 keyHash
 7. **告知用户**：重启 ZCode（或新开会话）后该供应商走压缩；`/hr-join off <名称>` 随时还原。
 

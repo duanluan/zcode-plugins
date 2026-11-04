@@ -12,7 +12,7 @@
               "${ZCODE_PLUGIN_ROOT}/hooks/runtime.cmd",
               "${ZCODE_PLUGIN_ROOT}/hooks/ensure-proxy.mjs"
             ],
-            "timeoutMs": 8000,
+            "timeoutMs": 30000,
             "statusMessage": "Headroom: 检查压缩代理…"
           },
           {
@@ -23,7 +23,7 @@
               "${ZCODE_PLUGIN_ROOT}\\hooks\\runtime-win.cmd",
               "${ZCODE_PLUGIN_ROOT}\\hooks\\ensure-proxy.mjs"
             ],
-            "timeoutMs": 8000,
+            "timeoutMs": 30000,
             "statusMessage": "Headroom: 检查压缩代理…"
           }
         ]

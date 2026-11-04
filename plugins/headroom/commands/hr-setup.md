@@ -29,7 +29,7 @@ Windows 上没有 `command -v`/`uv`/`pipx` 时：`where headroom` 确认，未�
 **Windows：没有 systemd，直接用插件脚本**（经插件启动器拉起，无需预装 node，自动带上 CPU/省电配置与电源监视器）：
 
 ```powershell
-cmd /c "<插件目录>\hooks\runtime.cmd" "<插件目录>\hooks\ensure-proxy.mjs" start
+cmd /c "<插件目录>\hooks\runtime-win.cmd" "<插件目录>\hooks\ensure-proxy.mjs" start
 # 插件目录形如 C:\Users\<用户>\.zcode\cli\plugins\cache\duanluan-zcode-plugins\headroom\<版本>
 ```
 

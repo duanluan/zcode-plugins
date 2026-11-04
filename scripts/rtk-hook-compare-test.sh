@@ -58,3 +58,5 @@ done <<'CASES'
 CASES
 echo "----"
 echo "total=$i diff=$fail"
+[ "$fail" -eq 0 ] || exit 1
+exit 0

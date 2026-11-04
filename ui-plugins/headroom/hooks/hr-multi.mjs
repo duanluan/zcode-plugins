@@ -27,6 +27,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { findHeadroom } from '../mcp/headroom-bin.mjs';
+import { acquireLifecycleLock, writeFileAtomic } from './headroom-lib.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const home = homedir();
@@ -43,13 +44,13 @@ function readConfig() {
   try { return JSON.parse(readFileSync(CONFIG, 'utf8')); } catch { return {}; }
 }
 function writeConfig(cfg) {
-  writeFileSync(CONFIG, JSON.stringify(cfg, null, 2) + '\n', 'utf8');
+  writeFileAtomic(CONFIG, JSON.stringify(cfg, null, 2) + '\n');
 }
 function readState() {
   try { return JSON.parse(readFileSync(STATE, 'utf8')); } catch { return {}; }
 }
 function writeState(st) {
-  writeFileSync(STATE, JSON.stringify(st, null, 2) + '\n', 'utf8');
+  writeFileAtomic(STATE, JSON.stringify(st, null, 2) + '\n');
 }
 
 function sha256(s) {
@@ -88,10 +89,17 @@ function stopLegacy(port) {
   return new Promise((resolve) => {
     if (process.env.HR_HEADROOM_CONFIG) { resolve(); return; }
     if (process.platform === 'win32') {
-      import('./headroom-lib.mjs').then((lib) => lib.proxyStop(port || 8787)).then(() => resolve());
+      // 失败也要 resolve（只记日志）：调用方等的是"停完了"这件事，被异常挂住会让
+      // 整个 ensure 卡死；不接 catch 还会留下未处理的 rejection
+      import('./headroom-lib.mjs')
+        .then((lib) => lib.proxyStop(port || 8787))
+        .then(() => resolve())
+        .catch((e) => { appendLog(`stopLegacy: 停旧代理失败 ${e?.message || e}\n`); resolve(); });
       return;
     }
-    const child = spawn('/bin/sh', [path.join(here, 'ensure-proxy.sh'), 'stop'], { stdio: 'ignore' });
+    // HR_LIFECYCLE_LOCK_HELD=1：调用入口已持生命周期锁，sh 侧别再抢同一把（父子互锁）
+    const child = spawn('/bin/sh', [path.join(here, 'ensure-proxy.sh'), 'stop'],
+      { stdio: 'ignore', env: { ...process.env, HR_LIFECYCLE_LOCK_HELD: '1' } });
     child.on('error', () => resolve());
     child.on('close', () => resolve());
   });
@@ -177,9 +185,20 @@ async function killTree(pid) {
   if (!pid) return;
   try { process.kill(pid, 0); } catch { return; }
   if (process.platform === 'win32') {
-    execFile('taskkill', ['/PID', String(pid), '/T', '/F'], { timeout: 10000, windowsHide: true }, () => {});
-  } else {
-    try { process.kill(pid, 'SIGTERM'); } catch { /* ignore */ }
+    // taskkill 要等它跑完：发完信号就返回的话，doStop 紧接着删状态文件、restart
+    // 又去拉新进程，会撞上还没退干净的旧进程还占着端口
+    await new Promise((resolve) => {
+      execFile('taskkill', ['/PID', String(pid), '/T', '/F'], { timeout: 10000, windowsHide: true }, () => resolve());
+    });
+    return;
+  }
+  try { process.kill(pid, 'SIGTERM'); } catch { /* ignore */ }
+  // 发完 SIGTERM 要等进程真正退出（约 3 秒上限）：不等的话调用方会把还没退的旧进程
+  // 误判成"已在跑"跳过拉起，等它退完就没人监听了。超时补 SIGKILL 再短等一会儿
+  for (let i = 0; i < 30 && pidAlive(pid); i++) await new Promise((r) => setTimeout(r, 100));
+  if (pidAlive(pid)) {
+    try { process.kill(pid, 'SIGKILL'); } catch { /* ignore */ }
+    for (let i = 0; i < 20 && pidAlive(pid); i++) await new Promise((r) => setTimeout(r, 50));
   }
 }
 
@@ -193,7 +212,13 @@ async function doEnsure() {
   const routerPort = (cfg.router && cfg.router.port) || 8787;
   const st0 = readState();
   const plans = await plan(cfg, st0);
-  writeConfig(cfg);
+  // plan 里的端口探测有 await，探测期间别的写者（/hr-join 等）可能改配置：不能把
+  // 读配置时的旧快照整个写回，会把别人的修改覆盖丢失。这里重新同步读一次，只合并
+  // 本次分配的实例端口键，其余键用刚读到的值
+  const merged = readConfig();
+  merged.instances = { ...(merged.instances || {}) };
+  for (const pl of plans) merged.instances[pl.key] = pl.port;
+  writeConfig(merged);
   writeState(st0);
   const bin = await findHeadroom();
   if (!bin) { console.error('找不到 headroom 可执行文件（先 /hr-setup 安装）'); return 1; }
@@ -206,7 +231,9 @@ async function doEnsure() {
     if (pl.pid && pidAlive(pl.pid)) {
       if (await portUp(pl.port)) { console.log(`实例 ${pl.key} 127.0.0.1:${pl.port} 已在跑`); st.instances[pl.key] = pl.pid; continue; }
       if (startingGrace(st, pl.key)) { console.log(`实例 ${pl.key} 127.0.0.1:${pl.port} 启动中（pid ${pl.pid}），本次不干预`); continue; }
-      killTree(pl.pid);
+      // 要等 killTree 真正杀完再往下走：killTree 会等进程退出，不等的话新实例
+      // 马上在同一端口 spawn，会撞上还没退干净的旧进程
+      await killTree(pl.pid);
     }
     const env = { ...process.env };
     // 上游用 CLI 参数显式指定。注意不要传 --backend：默认（passthrough）会按鉴权风格
@@ -219,8 +246,14 @@ async function doEnsure() {
     if (backend && backend !== 'auto') env.HEADROOM_KOMPRESS_BACKEND = backend;
     try {
       const logFd = openSync(logFile(), 'a');
-      const child = spawn(bin, proxyArgs, { detached: true, stdio: ['ignore', logFd, logFd], env, windowsHide: true });
-      child.unref();
+      let child;
+      try {
+        child = spawn(bin, proxyArgs, { detached: true, stdio: ['ignore', logFd, logFd], env, windowsHide: true });
+        child.unref();
+      } finally {
+        // 子进程已经继承了日志 fd，父进程这份要关掉，否则每启一个实例漏一个 fd
+        closeSync(logFd);
+      }
       st.instances[pl.key] = child.pid;
       st.startedAt = st.startedAt || {};
       st.startedAt[pl.key] = Date.now();
@@ -255,8 +288,14 @@ async function doEnsure() {
       const logFd = openSync(logFile(), 'a');
       const env = { ...process.env, HR_MULTI_ROUTER_PORT: String(routerPort) };
       if (process.env.HR_HEADROOM_CONFIG) env.HR_HEADROOM_CONFIG = process.env.HR_HEADROOM_CONFIG;
-      const child = spawn(process.execPath, [path.join(here, 'hr-multi.mjs'), '--serve'], { detached: true, stdio: ['ignore', logFd, logFd], env, windowsHide: true });
-      child.unref();
+      let child;
+      try {
+        child = spawn(process.execPath, [path.join(here, 'hr-multi.mjs'), '--serve'], { detached: true, stdio: ['ignore', logFd, logFd], env, windowsHide: true });
+        child.unref();
+      } finally {
+        // 同上：子进程继承了日志 fd，父进程这份要关掉
+        closeSync(logFd);
+      }
       st.routerPid = child.pid;
       appendLog(`start router port=${routerPort}\n`);
     } catch (e) {
@@ -276,8 +315,12 @@ async function doEnsure() {
 
 async function doStop() {
   const st = readState();
-  killTree(st.routerPid);
-  for (const pid of Object.values(st.instances || {})) killTree(pid);
+  // 先等所有 pid 真正退出、路由器端口释放，再删状态文件：不然 restart 紧接着的
+  // doEnsure 会把还没退干净的旧路由器当成"已在跑"跳过拉起
+  await killTree(st.routerPid);
+  for (const pid of Object.values(st.instances || {})) await killTree(pid);
+  const routerPort = (readConfig().router && readConfig().router.port) || 8787;
+  for (let i = 0; i < 20 && !(await canBind(routerPort)); i++) await new Promise((r) => setTimeout(r, 100));
   rmSync(STATE, { force: true });
   console.log('路由器与全部实例已停止');
   return 0;
@@ -468,6 +511,12 @@ function serve() {
   // SSE/长流：不限请求时长
   server.requestTimeout = 0;
   server.headersTimeout = 60000;
+  // listen 失败（端口被占等）不处理会以未捕获异常结束，日志里只有堆栈没有原因
+  server.on('error', (e) => {
+    appendLog(`router listen failed on 127.0.0.1:${port}: ${e.message}\n`);
+    console.error(`路由器监听 127.0.0.1:${port} 失败：${e.message}`);
+    process.exit(1);
+  });
   server.listen(port, '127.0.0.1', () => {
     appendLog(`router listening on 127.0.0.1:${port} routes=${routesNow().size}\n`);
   });
@@ -487,6 +536,20 @@ export async function handle(action) {
 // ensure/start/status 的返回码 3 = 未配置 providers（legacy 模式），调用方据此走旧代理
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {
   const action = process.argv[2] || 'ensure';
+  // 直跑入口自己抢与 ensure-proxy.mjs 同一把生命周期锁：不抢的话钩子触发的 ensure
+  // 和手工跑 hr-multi 会并行动作，抢同一端口、互相删状态文件。status 只读、
+  // --serve 是常驻进程，都不加锁；经 ensure-proxy.mjs import 调用时那边已持锁
+  let release = () => {};
+  if (['ensure', 'start', 'stop', 'restart'].includes(action)) {
+    const lock = await acquireLifecycleLock(action);
+    if (lock.status === 'skipped') process.exit(0);
+    release = lock.release;
+    // 钩子超时被 SIGTERM/SIGINT 杀掉时不触发 exit 事件，这里补释放（子进程都是
+    // detached 常驻，本来就该继续跑，不用转信号）
+    process.on('SIGTERM', () => { release(); process.exit(0); });
+    process.on('SIGINT', () => { release(); process.exit(0); });
+  }
   const r = await handle(action);
+  release();
   if (r !== null) process.exit(r === 3 ? 3 : r === 2 ? 2 : r === 1 ? 1 : 0);
 }

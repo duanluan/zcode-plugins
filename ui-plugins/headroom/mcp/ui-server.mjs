@@ -165,7 +165,12 @@ async function bridgeReady() {
         clientInfo: { name: 'headroom-ui', version: SERVER_INFO.version },
       });
       bridgeSend({ jsonrpc: '2.0', method: 'notifications/initialized' });
-    })();
+    })().catch((e) => {
+      // 初始化失败要把缓存置回空：留着失败的 promise 会让以后每次调用都直接报同一个
+      // 错，再也没有重试机会
+      bridgeInitPromise = null;
+      throw e;
+    });
   }
   return bridgeInitPromise;
 }
@@ -189,13 +194,19 @@ async function savingsOverview(args) {
     const child = spawn(bin, ['savings', '--json', '--days', String(days)], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
     let out = '';
     let err = '';
-    const timer = setTimeout(() => { try { child.kill(); } catch { /* ignore */ } }, 20000);
+    let forceKill = null;
+    const timer = setTimeout(() => {
+      try { child.kill('SIGTERM'); } catch { /* ignore */ }
+      // SIGTERM 被忽略时补一个 SIGKILL 兜底：不然 close 事件可能永远不来，这个
+      // promise 就一直挂着，工具调用不结束
+      forceKill = setTimeout(() => { try { child.kill('SIGKILL'); } catch { /* ignore */ } }, 5000);
+    }, 20000);
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
     child.stdout.on('data', (c) => { out += c; });
     child.stderr.on('data', (c) => { err += c; });
-    child.on('error', (e) => { clearTimeout(timer); resolve(`headroom 启动失败：${e.message}`); });
-    child.on('close', () => { clearTimeout(timer); resolve(out || err); });
+    child.on('error', (e) => { clearTimeout(timer); clearTimeout(forceKill); resolve(`headroom 启动失败：${e.message}`); });
+    child.on('close', () => { clearTimeout(timer); clearTimeout(forceKill); resolve(out || err); });
   });
   try {
     const data = JSON.parse(text);

@@ -11,10 +11,15 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const out = path.join(root, "dist", "local-marketplace");
 
+const plugins = path.join(root, "plugins");
+if (!fs.existsSync(plugins)) {
+  console.error("✗ 缺少 plugins/ 构建产物：先执行 pnpm build 再跑本脚本");
+  process.exit(1);
+}
 fs.rmSync(out, { recursive: true, force: true });
 fs.mkdirSync(out, { recursive: true });
 fs.copyFileSync(path.join(root, "marketplace.json"), path.join(out, "marketplace.json"));
-fs.cpSync(path.join(root, "plugins"), path.join(out, "plugins"), { recursive: true });
+fs.cpSync(plugins, path.join(out, "plugins"), { recursive: true });
 
 console.log(`✓ 本地市场已生成：${out}`);
 console.log("  先 pnpm build 再跑本脚本可带上最新产物；整份目录拷到目标机器后，");

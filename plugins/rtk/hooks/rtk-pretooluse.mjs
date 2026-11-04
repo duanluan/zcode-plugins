@@ -14,7 +14,7 @@
 // 逐段全命中才放行）时一律放行。
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { homedir, platform } from 'node:os';
@@ -97,12 +97,12 @@ try { session = String((JSON.parse(input).session_id) || ''); } catch { /* 已�
 const hash = createHash('sha256').update(`${session}\n${cmd}`).digest('hex');
 const remindedDir = path.join(stateDir, 'reminded');
 try {
-  if (existsSync(path.join(remindedDir, hash))) process.exit(0);
   mkdirSync(remindedDir, { recursive: true });
-  writeFileSync(path.join(remindedDir, hash), '');
-} catch { process.exit(0); }
+} catch { process.exit(0); } // 记录目录建不起来，后面记不了账，放行
+if (existsSync(path.join(remindedDir, hash))) process.exit(0); // 本会话同命令已提醒过
 
-// 提醒记录防无限增长：超过 128 条时清掉最旧的一半
+// 提醒记录防无限增长：超过 128 条时清掉最旧的一半。清理放在写提醒标记之前：
+// 夹在记账和拦截之间被杀，会留下"记了账却没提示"的状态
 try {
   const entries = readdirSync(remindedDir)
     .map((f) => ({ f, m: statSync(path.join(remindedDir, f)).mtimeMs }))
@@ -118,6 +118,13 @@ process.stderr.write(
   `  2. 原样重跑本命令：直接放行\n` +
   `同一命令仅提醒一次；/rtk off 可关闭提醒。\n` +
   `压缩结果若缺关键行：先按输出尾部提示 rtk recall <hash> --grep <关键字> 取回（不重跑）；确需完整原文再 rtk proxy <原命令>（会真正重跑）。\n`);
+
+// 提示写完再记账，记账紧跟 exit 2：中间被杀时最多丢一次提醒（下次还会再提醒），
+// 不会记了账却没提示。'wx' 排他创建：拿到文件 = 本次提醒的创建方；报 EEXIST =
+// 并发下别人已记账（视为已提醒），或记录写不进去，都放行
+try {
+  closeSync(openSync(path.join(remindedDir, hash), 'wx'));
+} catch { process.exit(0); }
 process.exit(2);
 
 // ===========================================================================

@@ -18,7 +18,7 @@
 import net from 'node:net';
 import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { chmodSync, mkdirSync, rmSync } from 'node:fs';
+import { chmodSync, lstatSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -33,14 +33,39 @@ const log = (...a) => { if (process.env.MCP_BRIDGE_DEBUG) console.error('[mcp-br
 
 // 套接字路径：同一服务命令（含参数）共用一个；Windows 用命名管道
 const sockKey = createHash('sha1').update(JSON.stringify(serverArgv)).digest('hex').slice(0, 12);
+// 目录不可信（同机他用户预占等）时为 false：不启用套接字，退化为直接执行服务命令
+let sockDirOk = true;
 const sockPath = process.platform === 'win32'
   ? `\\\\.\\pipe\\zcode-mcp-bridge-${sockKey}`
   : (() => {
       const dir = path.join(tmpdir(), `zcode-mcp-bridge-${process.getuid()}`);
       // 0700：守护方套接字无应用层鉴权，目录必须仅限本用户访问；
       // mkdir 的 mode 只对新建生效，已存在（含前次宽松权限创建）的要补校正
-      try { mkdirSync(dir, { recursive: true, mode: 0o700 }); } catch { /* 竞争下已存在 */ }
-      try { chmodSync(dir, 0o700); } catch { /* 无权限时尽力而为 */ }
+      try { mkdirSync(dir, { recursive: true, mode: 0o700 }); } catch (e) {
+        sockDirOk = false;
+        console.error('[mcp-bridge] 建套接字目录失败，不启用套接字:', e.message);
+        return '';
+      }
+      try { chmodSync(dir, 0o700); } catch (e) {
+        sockDirOk = false;
+        console.error('[mcp-bridge] 套接字目录改 0700 失败，不启用套接字:', e.message);
+        return '';
+      }
+      // 同机他用户可预占同名目录（mkdir 对已存在目录静默成功），把套接字放进他的地盘
+      // 劫持连接。逐项核对：真目录（lstat 下符号链接不算目录）、属主是自己、无组/其他位，
+      // 任一不满足就不启用套接字
+      try {
+        const st = lstatSync(dir);
+        if (!st.isDirectory() || st.uid !== process.getuid() || (st.mode & 0o077) !== 0) {
+          sockDirOk = false;
+          console.error('[mcp-bridge] 套接字目录属主/权限不对，不启用套接字:', dir);
+          return '';
+        }
+      } catch (e) {
+        sockDirOk = false;
+        console.error('[mcp-bridge] 套接字目录核对失败，不启用套接字:', e.message);
+        return '';
+      }
       return path.join(dir, `${sockKey}.sock`);
     })();
 
@@ -297,6 +322,8 @@ const tryListen = (listener, p) => new Promise((resolve) => {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 if (process.argv.includes('--daemon-role')) {
+  // 目录不可信时不启动监听（不给劫持者递套接字），上面已记日志
+  if (!sockDirOk) process.exit(0);
   const daemon = createDaemon();
   let res = await tryListen(daemon.listener, sockPath);
   if (res !== true && res && res.code === 'EADDRINUSE') {
@@ -320,28 +347,34 @@ if (process.argv.includes('--daemon-role')) {
     // windowsHide：服务命令常是控制台 exe，不隐藏会弹黑窗
     const child = spawn(serverArgv[0], serverArgv.slice(1), { stdio: 'inherit', windowsHide: true });
     child.on('error', () => process.exit(127));
-    child.on('exit', (c) => process.exit(c ?? 0));
+    // 被信号杀掉时退出码 c 是 null，这里用 1：报 0 会被上层当成正常结束
+    child.on('exit', (c) => process.exit(c ?? 1));
   };
 
-  if (!(await probe())) {
-    // 随机小延迟错峰孵化，减少重复 daemon（输了也会自行退出，无副作用）
-    await sleep(Math.floor(Math.random() * 150));
+  // 目录不可信时不孵化守护方、不连套接字，直接执行服务命令
+  if (!sockDirOk) {
+    directRun();
+  } else {
     if (!(await probe())) {
-      const { realpathSync } = await import('node:fs');
-      const self = realpathSync(process.argv[1]);
-      const child = spawn(process.execPath, [self, '--daemon-role', '--', ...serverArgv], {
-        detached: true,
-        stdio: 'ignore',
-        env: process.env,
-        // 关键：detached 在 Windows 上会为子进程新分配控制台，不配 windowsHide
-        // 就是那个可见的 headroom 黑窗（守护方再孵化 headroom.exe 共用该控制台）
-        windowsHide: true,
-      });
-      child.unref();
-      // 等守护方就绪（监听竞争输家会退出，赢家通常百毫秒内就绪）
-      for (let i = 0; i < 100 && !(await probe()); i++) await sleep(100);
+      // 随机小延迟错峰孵化，减少重复 daemon（输了也会自行退出，无副作用）
+      await sleep(Math.floor(Math.random() * 150));
+      if (!(await probe())) {
+        const { realpathSync } = await import('node:fs');
+        const self = realpathSync(process.argv[1]);
+        const child = spawn(process.execPath, [self, '--daemon-role', '--', ...serverArgv], {
+          detached: true,
+          stdio: 'ignore',
+          env: process.env,
+          // 关键：detached 在 Windows 上会为子进程新分配控制台，不配 windowsHide
+          // 就是那个可见的 headroom 黑窗（守护方再孵化 headroom.exe 共用该控制台）
+          windowsHide: true,
+        });
+        child.unref();
+        // 等守护方就绪（监听竞争输家会退出，赢家通常百毫秒内就绪）
+        for (let i = 0; i < 100 && !(await probe()); i++) await sleep(100);
+      }
     }
+    if (await probe()) runClient();
+    else directRun();
   }
-  if (await probe()) runClient();
-  else directRun();
 }

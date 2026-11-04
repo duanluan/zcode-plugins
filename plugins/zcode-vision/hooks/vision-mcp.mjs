@@ -10,7 +10,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { askImage, cardHeartbeat, cardUiAllowed, loadConfig, log, readSandboxRegistry, writeSandboxRegistry } from './vision-lib.mjs';
+import { askImage, cardHeartbeat, cardUiAllowed, loadConfig, log, readSandboxRegistry, sniffMime, writeSandboxRegistry } from './vision-lib.mjs';
 
 const SERVER_INFO = { name: 'zcode-vision', version: '1.7.9' };
 const PROTOCOL_VERSION = '2024-11-05';
@@ -65,15 +65,6 @@ const RESOURCES = [
   { uri: PANEL_URI, name: 'vision 图片卡片', mimeType: 'text/html;profile=mcp-app', description: '显示被识别的图片与问答（图片默认收起，点“显示图片”展开查看；追问直接在对话里提）' },
 ];
 
-const MIME_BY_EXT = {
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.gif': 'image/gif',
-  '.webp': 'image/webp',
-  '.bmp': 'image/bmp',
-};
-
 function rpcResult(id, result) {
   return { jsonrpc: '2.0', id, result };
 }
@@ -83,9 +74,11 @@ function rpcError(id, code, message) {
 
 async function handleCall(name, args) {
   if (name === 'vision_ask') {
-    const file = String(args?.image_path || '').trim();
+    const rawPath = String(args?.image_path || '').trim();
     const question = String(args?.question || '').trim();
-    if (!file || !question) return { content: [{ type: 'text', text: 'image_path 与 question 均必填' }], isError: true };
+    if (!rawPath || !question) return { content: [{ type: 'text', text: 'image_path 与 question 均必填' }], isError: true };
+    // 路径先规范化成绝对路径再用：绝对路径不会被 magick 解析成 msl: 之类的伪格式、@file 响应文件或选项
+    const file = path.resolve(rawPath);
     if (!fs.existsSync(file) || !fs.statSync(file).isFile()) {
       return { content: [{ type: 'text', text: `图片不存在：${file}（路径来自注入文本；若会话已久图可能已被清理，请用户重发图片）` }], isError: true };
     }
@@ -108,16 +101,22 @@ async function handleCall(name, args) {
     return { content: [{ type: 'text', text: 'ok' }], structuredContent: verdict };
   }
   if (name === 'vision_image_data') {
-    const file = String(args?.image_path || '').trim();
+    const rawPath = String(args?.image_path || '').trim();
+    const file = rawPath ? path.resolve(rawPath) : '';
     if (!file || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
-      return { content: [{ type: 'text', text: `图片不存在：${file}` }], isError: true };
+      return { content: [{ type: 'text', text: `图片不存在：${rawPath || file}` }], isError: true };
     }
     const stat = fs.statSync(file);
     if (stat.size > 8 * 1024 * 1024) {
       return { content: [{ type: 'text', text: `图片超过 8 MiB（${Math.round(stat.size / 1048576)} MiB），页面不加载` }], isError: true };
     }
-    const mime = MIME_BY_EXT[path.extname(file).toLowerCase()] || 'image/png';
-    const dataUrl = `data:${mime};base64,${fs.readFileSync(file).toString('base64')}`;
+    const buf = fs.readFileSync(file);
+    // 按魔数认图片类型：认不出的不把文件内容 base64 外发
+    const mime = sniffMime(buf);
+    if (!mime) {
+      return { content: [{ type: 'text', text: `不是可识别的图片类型（png/jpeg/gif/webp/bmp）：${file}` }], isError: true };
+    }
+    const dataUrl = `data:${mime};base64,${buf.toString('base64')}`;
     return { content: [{ type: 'text', text: 'ok' }], structuredContent: { dataUrl } };
   }
   return { content: [{ type: 'text', text: `未知工具：${name}` }], isError: true };
