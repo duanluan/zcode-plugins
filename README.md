@@ -6,9 +6,9 @@ ZCode 插件市场，市场名 `duanluan-zcode-plugins`。围绕 token 效率与
 
 | 插件 | 版本 | 作用 | 命令（**加粗 = 装后必做**） |
 |---|---|---|---|
-| [ZCode Vision](plugins/zcode-vision/README.md) | 1.7.9 | 纯文本模型也能读图（默认跟随会话供应商与其当前模型；识别结果默认纯文本展示，可开启卡片） | **/vision-setup**、/vision-proxy、/vision-chain、/vision |
-| [Headroom](plugins/headroom/README.md) | 1.3.4 | 请求层压缩，省对话 token；任意供应商可接入（/hr-join），CPU/省电自动切换压缩设备 | **/hr-setup**、/hr-join、/hr-status、/hr-proxy、/hr |
-| [rtk](plugins/rtk/README.md) | 1.4.3 | 命令输出源头压缩 60-90%，压缩记录面板可查被省略的输出 | **/rtk-setup**、/rtk-status、/rtk |
+| [ZCode Vision](plugins/zcode-vision/README.md) | 1.7.10 | 纯文本模型也能读图（默认跟随会话供应商与其当前模型；识别结果默认纯文本展示，可开启卡片） | **/vision-setup**、/vision-proxy、/vision-chain、/vision |
+| [Headroom](plugins/headroom/README.md) | 1.3.5 | 请求层压缩，省对话 token；任意供应商可接入（/hr-join），CPU/省电自动切换压缩设备 | **/hr-setup**、/hr-join、/hr-status、/hr-proxy、/hr |
+| [rtk](plugins/rtk/README.md) | 1.4.4 | 命令输出源头压缩 60-90%，压缩记录面板可查被省略的输出 | **/rtk-setup**、/rtk-status、/rtk |
 | [OpenCodeReview](plugins/open-code-review/README.md) | 1.2.2 | Git 变更行级 AI 评审，结果面板可勾选处理 | **/ocr-setup**、/ocr-delegate-review、/ocr-review、/ocr-scan、/ocr |
 
 点击插件名进入该插件的完整文档。四插件均带 ZCode ≥ 3.15.1 桌面端的交互页面（识图卡片、压缩记录、输出查看、评审面板），旧版客户端自动退回纯文本行为。所有命令的菜单简介里都带用法示例；大部分参数原样传给底层命令行工具。
