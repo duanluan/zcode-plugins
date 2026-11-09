@@ -19,8 +19,31 @@ export const CACHE_PATH = path.join(HOME, '.zcode', 'zcode-vision-cache.json');
 export const LOG_PATH = path.join(HOME, '.zcode-vision.log');
 export const IMAGE_CACHE_ROOT = path.join(hostDataRoot(), 'cli', 'image-cache');
 
-export const DEFAULT_PROMPT =
+// 界面语言：与 zcode-pro 的起名默认提示词同一套判断——桌面设置 localePreference
+// 优先，system/未设置时看进程环境语言（中文环境 → 中文，其余 → 英文）。
+function preferZhLocale() {
+  try {
+    const raw = fs.readFileSync(path.join(hostDataRoot(), 'v2', 'setting.json'), 'utf8').replace(/^\uFEFF/, '');
+    const pref = String(JSON.parse(raw)?.localePreference || '').toLowerCase();
+    if (pref.startsWith('en')) return false;
+    if (pref.startsWith('zh')) return true;
+  } catch { /* 配置缺失或损坏时按环境语言 */ }
+  const lang = String(process.env.LC_ALL || process.env.LC_MESSAGES || process.env.LANG || '').toLowerCase();
+  return lang.startsWith('zh');
+}
+
+const DEFAULT_PROMPT_ZH =
   '请详细描述这张图片的全部内容。若是界面或图表截图，请先把所有错误、警告、异常状态逐字引用出来（含完整原文），再描述整体布局、文字与关键数据。';
+const DEFAULT_PROMPT_EN =
+  'Describe the entire content of this image in detail. If it is a UI or chart screenshot, first quote every error, warning, and abnormal state verbatim (including the full text), then describe the overall layout, text, and key data.';
+export const DEFAULT_PROMPT = preferZhLocale() ? DEFAULT_PROMPT_ZH : DEFAULT_PROMPT_EN;
+
+// 配置里存的是内置默认提示词（旧版固定中文）时按当前语言重取；用户自己改过的不动。
+export function normalizePrompt(value) {
+  const text = typeof value === 'string' ? value.trim() : '';
+  if (!text) return DEFAULT_PROMPT;
+  return text === DEFAULT_PROMPT_ZH || text === DEFAULT_PROMPT_EN ? DEFAULT_PROMPT : value;
+}
 // 默认单级（chainMode: fallback）：session 跟随当前会话所用供应商，模型留空 =
 // 会话当前模型（glm-5.3 在 coding-plan 端点实测可看图，跟随会话模型开箱即用）。
 // 需要兜底级可手动加 glm-flash（GLM 订阅 Anthropic 兼容端点直连，key 留空自动
@@ -256,7 +279,7 @@ function timeoutOf(proxy, cfg) {
 export async function callProxy(proxy, { imageB64, mime, text }, cfg) {
   const apiKey = await resolveApiKey(proxy);
   if (!apiKey) throw new Error('无可用 API key（可在配置或 /vision-setup 里设置）');
-  const prompt = text || proxy.prompt || DEFAULT_PROMPT;
+  const prompt = normalizePrompt(text || proxy.prompt);
   const anthropic = (proxy.format || 'openai') === 'anthropic';
   const url = anthropic ? messagesUrl(proxy.baseUrl) : completionsUrl(proxy.baseUrl);
   const headers = anthropic
@@ -863,7 +886,7 @@ export async function runChain(cfg, chainProxies, imageBuf, mime) {
         skipNote(proxy, until);
         return { desc: '', used: lastName, errors };
       }
-      const prompt = proxy.prompt || DEFAULT_PROMPT;
+      const prompt = normalizePrompt(proxy.prompt);
       const useImage = !prev; // 第一步带图；后续步纯文本加工
       const finalPrompt = prompt.includes('{prev}') ? prompt.replaceAll('{prev}', prev) : prev ? `${prompt}\n\n${prev}` : prompt;
       try {

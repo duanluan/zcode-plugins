@@ -507,6 +507,23 @@ t('真实形态配置：xiaomi-mimo 解析出首选视觉模型 mimo-v2.6-flash'
   assert.ok(['anthropic', 'openai'].includes(r.format));
 });
 
+t('默认提示词跟随界面语言：旧中文默认在英文环境改成英文，自定义提示词不动', () => {
+  const ZH_DEFAULT =
+    '请详细描述这张图片的全部内容。若是界面或图表截图，请先把所有错误、警告、异常状态逐字引用出来（含完整原文），再描述整体布局、文字与关键数据。';
+  const writeLocale = (loc) => (dir) => fs.writeFileSync(
+    path.join(dir, '.zcode', 'v2', 'setting.json'), JSON.stringify({ localePreference: loc }));
+  const zh = inFakeHome(writeLocale('zh-CN'),
+    `return { def: lib.DEFAULT_PROMPT, normalized: lib.normalizePrompt(${JSON.stringify(ZH_DEFAULT)}), custom: lib.normalizePrompt('自定义提示词') };`).result;
+  const en = inFakeHome(writeLocale('en-US'),
+    `return { def: lib.DEFAULT_PROMPT, normalized: lib.normalizePrompt(${JSON.stringify(ZH_DEFAULT)}), empty: lib.normalizePrompt('') };`).result;
+  assert.match(zh.def, /^请详细描述/);
+  assert.match(en.def, /^Describe the entire content/);
+  assert.equal(zh.normalized, zh.def);
+  assert.equal(en.normalized, en.def);
+  assert.equal(zh.custom, '自定义提示词');
+  assert.equal(en.empty, en.def);
+});
+
 await Promise.all(asyncTests);
 console.log(`\n${passed} 通过，${failed} 失败`);
 if (failed) process.exit(1);
