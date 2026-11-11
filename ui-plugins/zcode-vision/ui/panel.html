@@ -15,6 +15,13 @@
     --border: #323941; --accent: #4493f8; --hover: #262c33;
   }
   * { box-sizing: border-box; }
+  /* html 必须显式透明：不写这条 body 再透明也挡不住底层画布的黑/白 */
+  html { background: transparent; }
+  /* SDK 会按主题给根元素设内联 color-scheme:dark——Chromium 在深色 color-scheme
+     下把画布涂成纯黑（实测 18,18,18，html/body 写透明都盖不住），壁纸根本透不出来。
+     面板控件都是自绘的、不依赖原生深色控件，用 !important 压回 light（内联样式
+     压不过样式表 !important），画布恢复透明 */
+  :root { color-scheme: light !important; }
   body {
     /* 背景透明：卡片容器或壁纸从底下透出（zcode-pro 壁纸引擎场景） */
     margin: 0; padding: 12px; background: transparent; color: var(--text);
@@ -47,6 +54,13 @@
     background: color-mix(in srgb, var(--panel) 88%, transparent); color: var(--text); cursor: pointer;
   }
   button:hover { background: var(--hover); }
+  /* 深色卡片用深灰实底：宿主切浅色后，已打开的旧卡片收不到换肤通知，仍按
+     深色样式渲染——浅色雾面在浅色宿主/亮壁纸下白字看不清（实测截图发灰）。
+     实底保证亮暗背景与亮暗宿主下文字都清楚。磨砂做不了：backdrop-filter 在
+     独立文档里够不到宿主壁纸，加在宿主页的 webview 元素上实测同样无效 */
+  [data-theme="dark"] .qa { background: rgba(30, 35, 41, 0.86); }
+  [data-theme="dark"] button { background: rgba(30, 35, 41, 0.88); }
+  [data-theme="dark"] button:hover { background: rgba(56, 63, 71, 0.9); }
   .hint { color: var(--muted); font-size: 12px; }
   #err { color: #cf222e; font-size: 12px; white-space: pre-wrap; margin-top: 6px; }
   [data-theme="dark"] #err { color: #f85149; }
