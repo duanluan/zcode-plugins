@@ -19,30 +19,54 @@ export const CACHE_PATH = path.join(HOME, '.zcode', 'zcode-vision-cache.json');
 export const LOG_PATH = path.join(HOME, '.zcode-vision.log');
 export const IMAGE_CACHE_ROOT = path.join(hostDataRoot(), 'cli', 'image-cache');
 
-// 界面语言：与 zcode-pro 的起名默认提示词同一套判断——桌面设置 localePreference
-// 优先，system/未设置时看进程环境语言（中文环境 → 中文，其余 → 英文）。
-function preferZhLocale() {
+// 界面语言：与 ZCode 支持的五种语言一致——桌面设置 localePreference 优先
+// （zh-CN / en-US / ja-JP / ko-KR / ru-RU），system/未设置时用官方已解析的 locale，
+// 再按进程环境语言判断；未识别的语言回退英文。
+const localeCode = (v) => {
+  const s = String(v || '').trim().toLowerCase();
+  return s.startsWith('zh') ? 'zh-CN'
+    : s.startsWith('ja') ? 'ja-JP'
+    : s.startsWith('ko') ? 'ko-KR'
+    : s.startsWith('ru') ? 'ru-RU'
+    : s.startsWith('en') ? 'en-US' : '';
+};
+function currentLocale() {
   try {
     const raw = fs.readFileSync(path.join(hostDataRoot(), 'v2', 'setting.json'), 'utf8').replace(/^\uFEFF/, '');
-    const pref = String(JSON.parse(raw)?.localePreference || '').toLowerCase();
-    if (pref.startsWith('en')) return false;
-    if (pref.startsWith('zh')) return true;
+    const s = JSON.parse(raw);
+    // 3.18.2 起真正的五种语言写在 uiLocale*；旧字段 locale/localePreference 只保留
+    // zh-CN / en-US 兼容值（ja/ko/ru 会写成 en-US），必须优先读新字段
+    const byUiPref = localeCode(s?.uiLocalePreference);
+    if (byUiPref) return byUiPref;
+    const byUi = localeCode(s?.uiLocale);
+    if (byUi) return byUi;
+    const byPref = localeCode(s?.localePreference);
+    if (byPref) return byPref;
+    const byResolved = localeCode(s?.locale);
+    if (byResolved) return byResolved;
   } catch { /* 配置缺失或损坏时按环境语言 */ }
-  const lang = String(process.env.LC_ALL || process.env.LC_MESSAGES || process.env.LANG || '').toLowerCase();
-  return lang.startsWith('zh');
+  return localeCode(process.env.LC_ALL || process.env.LC_MESSAGES || process.env.LANG) || 'en-US';
 }
 
-const DEFAULT_PROMPT_ZH =
-  '请详细描述这张图片的全部内容。若是界面或图表截图，请先把所有错误、警告、异常状态逐字引用出来（含完整原文），再描述整体布局、文字与关键数据。';
-const DEFAULT_PROMPT_EN =
-  'Describe the entire content of this image in detail. If it is a UI or chart screenshot, first quote every error, warning, and abnormal state verbatim (including the full text), then describe the overall layout, text, and key data.';
-export const DEFAULT_PROMPT = preferZhLocale() ? DEFAULT_PROMPT_ZH : DEFAULT_PROMPT_EN;
+const DEFAULT_PROMPTS = {
+  'zh-CN': '请详细描述这张图片的全部内容。若是界面或图表截图，请先把所有错误、警告、异常状态逐字引用出来（含完整原文），再描述整体布局、文字与关键数据。',
+  'en-US': 'Describe the entire content of this image in detail. If it is a UI or chart screenshot, first quote every error, warning, and abnormal state verbatim (including the full text), then describe the overall layout, text, and key data.',
+  'ja-JP': 'この画像の内容を詳しく説明してください。UI やグラフのスクリーンショットの場合は、まずエラー、警告、異常状態をすべて原文のまま（全文を含めて）引用し、そのうえで全体のレイアウト、文字、主要なデータを説明してください。',
+  'ko-KR': '이 이미지의 전체 내용을 자세히 설명해 주세요. UI나 차트 스크린샷이라면 먼저 모든 오류, 경고, 비정상 상태를 원문 그대로(전체 문구 포함) 인용한 다음, 전체 레이아웃과 텍스트, 핵심 데이터를 설명해 주세요.',
+  'ru-RU': 'Подробно опишите всё содержимое этого изображения. Если это скриншот интерфейса или графика, сначала дословно процитируйте все ошибки, предупреждения и аномальные состояния (включая полный текст), а затем опишите общую компоновку, текст и ключевые данные.',
+};
+export const DEFAULT_PROMPT = DEFAULT_PROMPTS[currentLocale()] || DEFAULT_PROMPTS['en-US'];
+// 旧配置升级判定用：五种语言的内置默认都算“未自定义”，用户自己改过的提示词不算
+const DEFAULT_PROMPT_SET = new Set(Object.values(DEFAULT_PROMPTS));
+const canonPrompt = (v) => (DEFAULT_PROMPT_SET.has(v) ? '<default>' : v);
+const canonProxies = (v) => (Array.isArray(v)
+  ? v.map((p) => (p && typeof p === 'object' ? { ...p, prompt: canonPrompt(p.prompt) } : p))
+  : v);
 
-// 配置里存的是内置默认提示词（旧版固定中文）时按当前语言重取；用户自己改过的不动。
+// 只有没有保存过提示词时才用当前语言的默认值；已保存的值（包括旧语言的内置默认）保持不变。
 export function normalizePrompt(value) {
   const text = typeof value === 'string' ? value.trim() : '';
-  if (!text) return DEFAULT_PROMPT;
-  return text === DEFAULT_PROMPT_ZH || text === DEFAULT_PROMPT_EN ? DEFAULT_PROMPT : value;
+  return text ? value : DEFAULT_PROMPT;
 }
 // 默认单级（chainMode: fallback）：session 跟随当前会话所用供应商，模型留空 =
 // 会话当前模型（glm-5.3 在 coding-plan 端点实测可看图，跟随会话模型开箱即用）。
@@ -185,7 +209,8 @@ export function loadConfig() {
   // 用户改过任何一处（换了模型、填了 key、调过链、改过模式）都不动，保持文件为准
   if (
     (onDisk.chainMode || 'fallback') === 'fallback' &&
-    LEGACY_DEFAULTS.some((l) => deepEqualUnordered(onDisk.chain, l.chain) && deepEqualUnordered(onDisk.proxies, l.proxies))
+    LEGACY_DEFAULTS.some((l) => deepEqualUnordered(onDisk.chain, l.chain)
+      && deepEqualUnordered(canonProxies(onDisk.proxies), canonProxies(l.proxies)))
   ) {
     const upgraded = { ...DEFAULT_CONFIG, ...onDisk, chain: DEFAULT_CONFIG.chain, proxies: DEFAULT_CONFIG.proxies };
     try {

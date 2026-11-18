@@ -50,7 +50,8 @@ Promise.resolve().then(async () => { ${body} }).then(
 );
 `;
   const out = execFileSync(process.execPath, ['--input-type=module', '-e', script], {
-    env: { ...process.env, HOME: dir },
+    // 数据根环境变量会盖过 HOME；测试必须清掉，否则会读开发机真实的 setting.json
+    env: { ...process.env, HOME: dir, ZCODE_DATA_BASE_DIR: '' },
     encoding: 'utf8',
     timeout: 30000,
   });
@@ -191,7 +192,8 @@ const r = await lib.resolveChainProxies(cfg, null);
 console.log(JSON.stringify({ model: r[0].model, err: r[0].__resolveError }));
 `;
   const out = execFileSync(process.execPath, ['--no-warnings', '--input-type=module', '-e', script], {
-    env: { ...process.env, HOME: dir }, encoding: 'utf8', timeout: 30000,
+    // 数据根环境变量会盖过 HOME；测试必须清掉，否则会读开发机真实的 setting.json
+    env: { ...process.env, HOME: dir, ZCODE_DATA_BASE_DIR: '' }, encoding: 'utf8', timeout: 30000,
   });
   const res = JSON.parse(out.trim().split('\n').pop());
   assert.equal(res.err, undefined, name + ' 解析失败: ' + res.err);
@@ -412,6 +414,28 @@ t('旧配置升级：未自定义的 v2 两级默认自动升级为单级 sessio
   assert.equal(result.proxies[0].model, '');
 });
 
+t('旧配置升级：旧语言的内置默认同样识别，不被当前界面语言挡住', () => {
+  const oldZh = legacyV1();
+  oldZh.proxies[0].prompt = '请详细描述这张图片的全部内容。若是界面或图表截图，请先把所有错误、警告、异常状态逐字引用出来（含完整原文），再描述整体布局、文字与关键数据。';
+  const setup = (dir) => {
+    writeVisionCfg(oldZh)(dir);
+    fs.writeFileSync(path.join(dir, '.zcode', 'v2', 'setting.json'), JSON.stringify({
+      locale: 'en-US', localePreference: 'en-US', uiLocale: 'ja-JP', uiLocalePreference: 'ja-JP',
+    }));
+  };
+  const { result } = inFakeHome(setup, `return lib.loadConfig();`);
+  assert.deepEqual(result.chain, ['session'], '中文旧默认在日语界面下仍升级');
+  assert.equal(result.proxies[0].prompt.includes('この画像'), true, '升级后的默认提示词用当前界面语言');
+});
+
+t('旧配置升级：用户改过提示词就不升级', () => {
+  const custom = legacyV1();
+  custom.proxies[0].prompt = '我自己的识图提示词';
+  const { result } = inFakeHome(writeVisionCfg(custom), `return lib.loadConfig();`);
+  assert.deepEqual(result.chain, ['glm-flash']);
+  assert.equal(result.proxies[0].prompt, '我自己的识图提示词');
+});
+
 t('旧配置升级：改过的配置保持原样（换模型/改模式都不动）', () => {
   const custom = legacyV2();
   custom.proxies.find((p) => p.name === 'glm-flash').model = 'glm-4.5v';
@@ -507,21 +531,41 @@ t('真实形态配置：xiaomi-mimo 解析出首选视觉模型 mimo-v2.6-flash'
   assert.ok(['anthropic', 'openai'].includes(r.format));
 });
 
-t('默认提示词跟随界面语言：旧中文默认在英文环境改成英文，自定义提示词不动', () => {
+t('默认提示词只在未保存时取当前语言；已保存的值不随语言切换改变', () => {
   const ZH_DEFAULT =
     '请详细描述这张图片的全部内容。若是界面或图表截图，请先把所有错误、警告、异常状态逐字引用出来（含完整原文），再描述整体布局、文字与关键数据。';
-  const writeLocale = (loc) => (dir) => fs.writeFileSync(
-    path.join(dir, '.zcode', 'v2', 'setting.json'), JSON.stringify({ localePreference: loc }));
-  const zh = inFakeHome(writeLocale('zh-CN'),
-    `return { def: lib.DEFAULT_PROMPT, normalized: lib.normalizePrompt(${JSON.stringify(ZH_DEFAULT)}), custom: lib.normalizePrompt('自定义提示词') };`).result;
-  const en = inFakeHome(writeLocale('en-US'),
-    `return { def: lib.DEFAULT_PROMPT, normalized: lib.normalizePrompt(${JSON.stringify(ZH_DEFAULT)}), empty: lib.normalizePrompt('') };`).result;
+  const writeLocale = (loc) => (dir) => {
+    // ZCode 3.18.2 的真实落盘形态：旧字段只保留 zh-CN / en-US，ja/ko/ru 看 uiLocale*
+    const legacy = loc === 'zh-CN' ? 'zh-CN' : 'en-US';
+    fs.writeFileSync(path.join(dir, '.zcode', 'v2', 'setting.json'), JSON.stringify({
+      locale: legacy, localePreference: legacy, uiLocale: loc, uiLocalePreference: loc,
+    }));
+  };
+  const pick = (loc) => inFakeHome(writeLocale(loc),
+    `return { def: lib.DEFAULT_PROMPT, saved: lib.normalizePrompt(${JSON.stringify(ZH_DEFAULT)}), empty: lib.normalizePrompt(''), custom: lib.normalizePrompt('自定义提示词') };`).result;
+  const zh = pick('zh-CN');
+  const en = pick('en-US');
+  const ja = pick('ja-JP');
+  const ko = pick('ko-KR');
+  const ru = pick('ru-RU');
   assert.match(zh.def, /^请详细描述/);
   assert.match(en.def, /^Describe the entire content/);
-  assert.equal(zh.normalized, zh.def);
-  assert.equal(en.normalized, en.def);
-  assert.equal(zh.custom, '自定义提示词');
-  assert.equal(en.empty, en.def);
+  assert.match(ja.def, /^この画像/);
+  assert.match(ko.def, /^이 이미지/);
+  assert.match(ru.def, /^Подробно опишите/);
+  for (const [loc, r] of [['zh-CN', zh], ['en-US', en], ['ja-JP', ja], ['ko-KR', ko], ['ru-RU', ru]]) {
+    assert.equal(r.saved, ZH_DEFAULT, `${loc}：已保存的提示词不随语言切换改变`);
+    assert.equal(r.empty, r.def, `${loc}：未保存时取当前语言默认`);
+    assert.equal(r.custom, '自定义提示词', `${loc}：自定义提示词保持原样`);
+  }
+});
+
+t('界面语言：uiLocalePreference=system 时用官方已解析的 uiLocale', () => {
+  const setup = (dir) => fs.writeFileSync(
+    path.join(dir, '.zcode', 'v2', 'setting.json'),
+    JSON.stringify({ locale: 'en-US', localePreference: 'system', uiLocale: 'ko-KR', uiLocalePreference: 'system' }));
+  const { result } = inFakeHome(setup, `return lib.DEFAULT_PROMPT;`);
+  assert.match(result, /^이 이미지/);
 });
 
 await Promise.all(asyncTests);
