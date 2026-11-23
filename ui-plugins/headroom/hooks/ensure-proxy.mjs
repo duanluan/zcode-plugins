@@ -61,6 +61,28 @@ process.on('SIGINT', () => { void shutdown(); });
 // 只跑 multi 的 stop 会让旧实例漏网、路由器起不来。配置路径跟随 HR_HEADROOM_CONFIG，
 // 与 hr-multi 保持同一视图（自测时不误碰真机）
 {
+  // 先对账再判定：界面换了 key、或供应商接了路由却没登记时，先补齐/更新 providers，
+  // 否则下面的 hasProviders 会按旧配置判定，路由器继续按旧哈希 502（且新补的条目
+  // 会让 hasProviders 从 false 变 true，必须在对账之后重读配置）
+  if (['ensure', 'start', 'restart'].includes(action)) {
+    try {
+      const { reconcileAndNotify } = await import('./hr-reconcile.mjs');
+      const r = reconcileAndNotify();
+      // 走 stderr：本进程 stdout 是人读状态行，也可能被 SessionStart 钩子当 JSON 解析
+      if (r.fixed.length) {
+        const names = r.fixed.map((x) => `${x.name}（${x.action === 'key' ? '更新密钥' : '补登记'}）`).join('、');
+        console.error(`headroom: 已自动同步供应商登记：${names}`);
+      }
+      if (r.pending.length) {
+        const names = r.pending.map((x) => x.name).join('、');
+        console.error(`headroom: ${names} 指向本地路由但未登记，且无法推断原上游，请跑 /hr-join 接入`);
+      }
+    } catch (err) {
+      // 对账失败不能挡住代理启动
+      console.error(`headroom: 供应商登记对账失败（不影响代理）：${err?.message || err}`);
+    }
+  }
+
   const { handle } = await import('./hr-multi.mjs');
   const cfgPath = process.env.HR_HEADROOM_CONFIG || path.join(homedir(), '.zcode', 'headroom.json');
   let hasProviders = false;

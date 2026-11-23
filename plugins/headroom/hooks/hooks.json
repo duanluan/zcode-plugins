@@ -25,6 +25,27 @@
             ],
             "timeoutMs": 30000,
             "statusMessage": "Headroom: 检查压缩代理…"
+          },
+          {
+            "type": "process",
+            "command": "/bin/sh",
+            "args": [
+              "${ZCODE_PLUGIN_ROOT}/hooks/runtime.cmd",
+              "${ZCODE_PLUGIN_ROOT}/hooks/hr-notice.mjs"
+            ],
+            "timeoutMs": 10000,
+            "statusMessage": "Headroom: 汇总供应商登记结果…"
+          },
+          {
+            "type": "process",
+            "command": "cmd.exe",
+            "args": [
+              "/c",
+              "${ZCODE_PLUGIN_ROOT}\\hooks\\runtime-win.cmd",
+              "${ZCODE_PLUGIN_ROOT}\\hooks\\hr-notice.mjs"
+            ],
+            "timeoutMs": 10000,
+            "statusMessage": "Headroom: 汇总供应商登记结果…"
           }
         ]
       }
