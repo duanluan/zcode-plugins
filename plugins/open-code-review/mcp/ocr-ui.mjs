@@ -30,7 +30,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        title: { type: 'string', description: '评审标题（如「fix-login 分支评审」），可选' },
+        title: { type: 'string', description: '评审标题（如“fix-login 分支评审”），可选' },
         ref: { type: 'string', description: '评审范围（如 commit sha、分支名、工作区），可选' },
         findings: {
           type: 'array',

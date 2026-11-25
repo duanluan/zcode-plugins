@@ -1,6 +1,10 @@
-# web-search
+# web-search：网页搜索与抓取
 
-网页搜索与抓取。补上第三方模型供应商不支持内置 `WebSearch` 时的搜索能力。
+[← 返回插件总览](../../README.md#-插件一览)
+
+**装后必做：`/web-search-setup`**——首次向导：确认默认引擎与结果条数，需要 key 的引擎可当场填 key，最后跑一次真实搜索验证。不改配置也能用（默认引擎 anysearch 免 key）。
+
+**原理**：补上第三方模型供应商不支持内置 `WebSearch` 时的搜索能力。引擎层是第三方开源实现（MIT），vendor 在插件里原样使用；模型侧看到的是 12 个 MCP 工具，与内置 `WebSearch` 并存，不是替换。
 
 接入 43 个引擎，其中 **19 个免 key**（anysearch、bing、ddg、ddg-lite、searxng、exa、tavily、keenable、firecrawl、parallel、you、serper 等），其余 **24 个需要 API key**（Brave、智谱、Perplexity、Google CSE、Kimi、阿里云百炼等）。插件名不带 free，因为约一半引擎是要 key 的。
 

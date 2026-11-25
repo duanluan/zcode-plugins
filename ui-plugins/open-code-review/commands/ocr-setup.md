@@ -75,4 +75,4 @@ ocr --version    # 输出 open-code-review v1.x 即正常
 
 - 安装/修复结果、ocr 版本、记录进 `~/.zcode/open-code-review.json` 的路径
 - 后续命令（/ocr-delegate-review 等）找不到 ocr 时会读配置里的 `nativeBinary` 兜底，平时无需重跑本命令
-- 可选：仅 /ocr-review、/ocr-scan 需要给 ocr 配 LLM（`ocr config set`，见 README「ocr 的 LLM 配置」）；委托模式不需要
+- 可选：仅 /ocr-review、/ocr-scan 需要给 ocr 配 LLM（`ocr config set`，见 README“ocr 的 LLM 配置”）；委托模式不需要

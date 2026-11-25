@@ -263,14 +263,14 @@ const PROXY = 'http://127.0.0.1:8787';
   fs.writeFileSync(path.join(s.dir, 'headroom.json'), broken);
   const r = s.run();
   // failed 标记是这条保护的关键特征：去掉保护（按空对象兜底）时它会是 undefined，
-  // 只断言「原文件未变」抓不到——坏 JSON 兜底成空对象后同样不会写
+  // 只断言“原文件未变”抓不到——坏 JSON 兜底成空对象后同样不会写
   eq('损坏配置：标记 failed', r.failed, true);
   eq('损坏配置：不报 fixed', r.fixed.length, 0);
   eq('损坏配置：原文件逐字节未变', fs.readFileSync(path.join(s.dir, 'headroom.json'), 'utf8'), broken);
   ok('损坏配置：kompressBackend 仍在原文里', fs.readFileSync(path.join(s.dir, 'headroom.json'), 'utf8').includes('kompressBackend'));
 }
 
-// —— 12b. 配置损坏时保留上一轮提示（不能把「没检查成」当成「没问题」）——
+// —— 12b. 配置损坏时保留上一轮提示（不能把“没检查成”当成“没问题”）——
 {
   const s = scenario({
     providerOrder: ['p7b'],
@@ -325,7 +325,7 @@ const PROXY = 'http://127.0.0.1:8787';
 
 // —— 15. unchanged 条目占着同一哈希时，另一个改到该 key 不能造成重复 ——
 // a 由 X 改成 Y、b 保持 X：a 让出 X 后 b 独占，不算冲突，两条哈希仍不同。
-// 这里守住的是「不产生重复」，不要求报 conflict。
+// 这里守住的是“不产生重复”，不要求报 conflict。
 {
   const s = scenario({
     providerOrder: ['a', 'b'],

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// headroom-ui MCP 服务（UI Plugin）：为「headroom 压缩记录」侧栏面板提供 ui:// 资源与页面工具。
+// headroom-ui MCP 服务（UI Plugin）：为“headroom 压缩记录”侧栏面板提供 ui:// 资源与页面工具。
 // 独立于现有 headroom 桥（bridge.mjs 一行不改，见 ADR-0005）：
 //   - hr_savings_overview 直接跑 headroom CLI（savings --json）；
 //   - hr_retrieve 把 bridge.mjs 当子进程拉起、经其 stdio 说 MCP，复用单例桥调 headroom_retrieve。

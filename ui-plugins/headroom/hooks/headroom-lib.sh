@@ -182,7 +182,7 @@ hr_power_flags_win() {
     [ -n "$_hr_ps" ] || { printf '\n'; return; }
     _hr_out=$("$_hr_ps" -NoProfile -Command 'Add-Type -AssemblyName System.Windows.Forms; $p=[System.Windows.Forms.SystemInformation]::PowerStatus; $s="Indeterminate"; try{$s=[string]$p.PowerSavingMode}catch{}; "PL=$($p.PowerLineStatus);SAVER=$s;SCHEME=$(powercfg /getactivescheme)"' 2>/dev/null) || { printf '\n'; return; }
     _hr_f=""
-    # Windows 节电模式（Win10 1809+），或激活的电源计划是「节能」
+    # Windows 节电模式（Win10 1809+），或激活的电源计划是“节能”
     # （计划名会本地化，但 GUID 固定：a1841308-3541-4fab-bc81-f71556f20b4a）
     case "$_hr_out" in
         *SAVER=True*|*a1841308-3541-4fab-bc81-f71556f20b4a*) _hr_f="saver" ;;

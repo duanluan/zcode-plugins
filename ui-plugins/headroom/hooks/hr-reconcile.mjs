@@ -2,10 +2,10 @@
 // 供应商登记对账（SessionStart 钩子 ensure/start/restart 时执行一次）：
 // ZCode 侧供应商的 baseUrl 指向本地路由 8787，路由器就按 key 的 sha256 查路由表；
 // 界面里换了 key、或供应商接了路由却没登记，请求会被路由器 502 拒掉，而且只有用户
-// 主动跑 /hr-join 才能修。这里把「指本地路由的供应商」和 headroom.json 的 providers
+// 主动跑 /hr-join 才能修。这里把“指本地路由的供应商”和 headroom.json 的 providers
 // 对一遍：
 //   key 变了  → 自动改 keyHash（上游沿用登记记录，不重新推断）
-//   未登记    → 只提示，不写入（见下方「为什么不自动补」）
+//   未登记    → 只提示，不写入（见下方“为什么不自动补”）
 //
 // 为什么不自动补登记：能拿到原上游的地方只有 zcode-pro 的 zcodepro.json
 // headroomRoutes[id].direct，但那是 headroom 的默认转发地址（GLM 官方），
@@ -14,7 +14,7 @@
 // 没有可靠来源时就只提示用户跑 /hr-join——它会问用户真实上游。
 //
 // 判定规则：只有 baseUrl 指向本地路由端口的供应商参与对账；直连（真实上游地址）
-// 的一律不碰——那是用户「不走压缩」的选择。
+// 的一律不碰——那是用户“不走压缩”的选择。
 //
 // 写入遵循 ADR-0008：只改 providers，其余键原样保留；读失败时拒绝写入（不能以空
 // 对象为底重写，否则 router/instances/kompressBackend 全丢）；用 writeFileAtomic
@@ -44,7 +44,7 @@ export const noticeFile = () => configPathIn('hr-reconcile-notice.json');
 const sha256 = (s) => createHash('sha256').update(s).digest('hex');
 const str = (v) => (typeof v === 'string' ? v.trim() : '');
 
-// 读 JSON：文件不存在返回 undefined（与「存在但读坏」区分开——后者必须拒绝写入）
+// 读 JSON：文件不存在返回 undefined（与“存在但读坏”区分开——后者必须拒绝写入）
 function readJson(file) {
   let text;
   try {
@@ -83,7 +83,7 @@ function formatOf(upstream, apiType) {
 
 // —— 读 ZCode 侧：providerRules 优先，config.json 的 options 回退 ——
 // 存活与否以 providerOrder 为准（界面删掉的供应商定义会残留在 config.json）。
-// providerOrder 是空数组时就是「一个都没有」，不能退化成并集把已删的捞回来。
+// providerOrder 是空数组时就是“一个都没有”，不能退化成并集把已删的捞回来。
 function readZcodeProviders() {
   const pc = readJson(providerConfigFile());
   const cfg = readJson(zcodeConfigFile());
@@ -190,7 +190,7 @@ export function reconcileProviders() {
 
   // —— 冲突检查 ——
   // 路由器按 keyHash 查表（同哈希后写覆盖前写），两个不同上游共用同一 key 会让其中
-  // 一个的请求被送到对方上游。判定要用「变更之后的最终归属」，不能边遍历边改表：
+  // 一个的请求被送到对方上游。判定要用“变更之后的最终归属”，不能边遍历边改表：
   //   - 先算每个目标供应商改完之后会用的 keyHash
   //   - 没参与对账的已登记条目（直连的、已被删的）保持原 keyHash 占用
   //   - 同一哈希被多个 id 认领时，只让第一个改，其余转 pending(key-conflict)
@@ -256,7 +256,7 @@ export function reconcileProviders() {
       writeProviders(updates);
     } catch (err) {
       console.error(`hr-reconcile: 写入 headroom.json 失败，本次未改动：${err?.message || err}`);
-      // 写失败＝实际没修好，不能上报 fixed，也不能当作「没有问题」
+      // 写失败＝实际没修好，不能上报 fixed，也不能当作“没有问题”
       return { fixed: [], pending, unchanged, failed: true };
     }
   }
@@ -275,7 +275,7 @@ function clearNotice() {
 
 /**
  * 对账并写提示文件：有问题写，确认没有问题时清掉上一轮残留。
- * failed=true（读/写配置失败）时什么都不做——既不能当成「已修好」删掉旧提示，
+ * failed=true（读/写配置失败）时什么都不做——既不能当成“已修好”删掉旧提示，
  * 也不能拿不完整的结果覆盖它；上一轮的提示继续有效。
  */
 export function reconcileAndNotify() {

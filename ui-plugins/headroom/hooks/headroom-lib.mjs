@@ -91,7 +91,7 @@ export function powershellSync(command, timeoutMs = 15000) {
 }
 
 // 输出 'saver'/'battery' 标志（可同时存在），检测失败输出空 = 按交流处理。
-// saver = Windows 节电模式（Win10 1809+）或激活的电源计划是「节能」
+// saver = Windows 节电模式（Win10 1809+）或激活的电源计划是“节能”
 //（计划名会本地化，但 GUID 固定：a1841308-3541-4fab-bc81-f71556f20b4a）；
 // battery = 电池放电中（PowerLineStatus Offline）。
 export async function powerFlags() {
@@ -260,7 +260,7 @@ function taskkill(pid) {
 }
 
 // 停止代理（优先状态文件里的 pid，taskkill /T 连子进程一起杀）并清除状态。
-// 回退按端口找占用进程：pip 的 console script 是「启动器 exe → python 子进程」两层，
+// 回退按端口找占用进程：pip 的 console script 是“启动器 exe → python 子进程”两层，
 // 只按进程名杀 headroom.exe 会漏掉真正占端口的 python 子进程。
 export async function proxyStop(port) {
   const pid = Number(stateGet('pid', '')) || 0;

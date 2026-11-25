@@ -111,7 +111,7 @@ t('格式兜底：api.type=anthropic-messages → anthropic', () => {
   assert.equal(result.format, 'anthropic');
 });
 
-t('格式兜底：openai-responses 格式明确报「暂不支持」', () => {
+t('格式兜底：openai-responses 格式明确报“暂不支持”', () => {
   const { result } = inFakeHome(writeProvider('p1', { kind: 'openai-responses' }), `
     try { await lib.resolveProviderRef('p1', null); return 'no-throw'; } catch (e) { return e.message; }`);
   assert.match(result, /暂不支持/);
@@ -306,8 +306,8 @@ t('主模型跳过：flash 永远跳过；图片开关读不到时维持旧默�
   assert.equal(r.null, false); // 认不出照常识别
 });
 
-t('主模型跳过：与宿主「模型设置」图片开关联动（1.7.9 新默认）', () => {
-  // provider_config.json 的 modelConfigRules 是桌面端「模型设置」图片勾选框的真实落盘格式
+t('主模型跳过：与宿主“模型设置”图片开关联动（1.7.9 新默认）', () => {
+  // provider_config.json 的 modelConfigRules 是桌面端“模型设置”图片勾选框的真实落盘格式
   const writeModelRules = (inline) => (dir) => {
     const cfg = { config: { modelConfigRules: { providerModelRules: [
       { providerId: 'xiaomi-mimo', modelId: 'mimo-v2.6-pro', config: { properties: { inputFormat: { supportsImage: inline, supportsVideo: true } } } },

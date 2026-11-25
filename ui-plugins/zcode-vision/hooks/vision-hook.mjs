@@ -12,7 +12,7 @@
 //
 // 约定：
 // - 主模型名从任务索引反查（tasks.model = "<providerId>/<modelId>"），按名字猜能力：
-//   flash 小模型不触发（识别就是它自己）；vision 类主模型与宿主「模型设置-图片」开关联动
+//   flash 小模型不触发（识别就是它自己）；vision 类主模型与宿主“模型设置-图片”开关联动
 //   （开 = 模型自看不指路；关 = 必指路），forceIntercept 显式 true 才强制拦截（细则见 vision-lib）。
 // - 配置唯一事实来源 ~/.zcode/zcode-vision.json（/vision-* 命令与 zcode-pro 面板编辑同一文件）。
 
@@ -323,7 +323,7 @@ async function main() {
   process.exit(0);
 }
 
-// ---- /vision test 与 zcode-pro「测试」按钮共用：找一张真实图片跑全链 ----
+// ---- /vision test 与 zcode-pro“测试”按钮共用：找一张真实图片跑全链 ----
 // 内置测试图（320x120 PNG，灰底黑字“zcode-vision test / OK 1016”）：本机从没发过
 // 图片时 image-cache 目录不存在或为空，测试按钮用它兜底，任何机器开箱可测
 const TEST_IMAGE_B64 = [

@@ -6,16 +6,16 @@
 
 ### 🌟 委托模式（推荐）`/ocr-delegate-review`
 
-ocr 用确定性工程解决"评审哪些文件、按什么规则"两个问题：文件覆盖完整、位置定位精准，评审本身由 ZCode 用自身模型完成。
+ocr 用确定性工程解决“评审哪些文件、按什么规则”两个问题：文件覆盖完整、位置定位精准，评审本身由 ZCode 用自身模型完成。
 
 ```
 /ocr-delegate-review                          # 工作区改动（暂存+未暂存+未跟踪）
 /ocr-delegate-review --from main --to feat-x  # 分支范围（merge-base 模式）
 /ocr-delegate-review --commit abc123          # 单个提交
-/ocr-delegate-review -b "这次改的是登录限流"    # 带业务背景
+/ocr-delegate-review -b “这次改的是登录限流”    # 带业务背景
 ```
 
-流程：`ocr delegate preview`（选文件）→ `ocr delegate rule`（出规则）→ ZCode 逐文件取 diff 评审 → 高/中问题展示并自动修复（低置信度静默丢弃）→ 跑测试验证。命令内置"第 0 步：确定评审目标"——当前目录不是 git 仓库时，会结合会话上下文推断目标项目，不明确时先行确认，不擅自切换评审目标。
+流程：`ocr delegate preview`（选文件）→ `ocr delegate rule`（出规则）→ ZCode 逐文件取 diff 评审 → 高/中问题展示并自动修复（低置信度静默丢弃）→ 跑测试验证。命令内置“第 0 步：确定评审目标”——当前目录不是 git 仓库时，会结合会话上下文推断目标项目，不明确时先行确认，不擅自切换评审目标。
 
 ### ⚙️ ocr 自带流水线 `/ocr-review`（需先配置 ocr 的 LLM，见下文）
 

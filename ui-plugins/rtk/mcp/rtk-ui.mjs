@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// rtk-ui MCP 服务（UI Plugin）：为「rtk 输出记录」侧栏面板提供 ui:// 资源与页面工具。
+// rtk-ui MCP 服务（UI Plugin）：为“rtk 输出记录”侧栏面板提供 ui:// 资源与页面工具。
 // 工具只给页面调用（_meta.ui.visibility=["app"]，不进模型工具列表）；数据经 rtk CLI
 // 读取（recall.db 由 rtk 本体管理，本服务不碰数据库文件）。
 // 协议：stdio 上的 MCP（JSON-RPC 2.0，按行分隔），与 vision-mcp.mjs 同款手写实现。

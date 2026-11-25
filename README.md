@@ -6,8 +6,8 @@ ZCode 插件市场，市场名 `duanluan-zcode-plugins`。围绕 token 效率与
 
 | 插件 | 版本 | 作用 | 命令（**加粗 = 装后必做**） |
 |---|---|---|---|
-| [ZCode Vision](plugins/zcode-vision/README.md) | 1.7.11 | 纯文本模型也能读图（默认跟随会话供应商与其当前模型；识别结果默认纯文本展示，可开启卡片） | **/vision-setup**、/vision-proxy、/vision-chain、/vision |
-| [Headroom](plugins/headroom/README.md) | 1.3.5 | 请求层压缩，省对话 token；任意供应商可接入（/hr-join），CPU/省电自动切换压缩设备 | **/hr-setup**、/hr-join、/hr-status、/hr-proxy、/hr |
+| [ZCode Vision](plugins/zcode-vision/README.md) | 1.7.13 | 纯文本模型也能读图（默认跟随会话供应商与其当前模型；识别结果默认纯文本展示，可开启卡片） | **/vision-setup**、/vision-proxy、/vision-chain、/vision |
+| [Headroom](plugins/headroom/README.md) | 1.3.6 | 请求层压缩，省对话 token；任意供应商可接入（/hr-join），CPU/省电自动切换压缩设备 | **/hr-setup**、/hr-join、/hr-status、/hr-proxy、/hr |
 | [rtk](plugins/rtk/README.md) | 1.4.4 | 命令输出源头压缩 60-90%，压缩记录面板可查被省略的输出 | **/rtk-setup**、/rtk-status、/rtk |
 | [OpenCodeReview](plugins/open-code-review/README.md) | 1.2.2 | Git 变更行级 AI 评审，结果面板可勾选处理 | **/ocr-setup**、/ocr-delegate-review、/ocr-review、/ocr-scan、/ocr |
 | [Web Search](plugins/web-search/README.md) | 1.0.0 | 多引擎网页搜索与整页抓取，补上不支持原生搜索的供应商（43 个引擎，19 个免 key） | **/web-search-setup**、/web-search-config、/web-search-test、/web-search-doctor、/web-search |
@@ -31,7 +31,7 @@ Web Search 没有界面，只用命令与配置文件。所有命令的菜单简
 
 前置：Git ≥ 2.41。命令行工具按需安装（ocr、headroom、rtk 由各自的 setup 命令安装）。
 
-1. ZCode → 插件市场 → 右上角「添加」→ 添加插件市场，填写 `duanluan/zcode-plugins`
+1. ZCode → 插件市场 → 右上角“添加”→ 添加插件市场，填写 `duanluan/zcode-plugins`
 2. 找到 **duanluan-zcode-plugins** 市场，安装需要的插件并启用
 3. 先跑上表加粗的装后必做命令（headroom 的供应商接入由 /hr-setup 自动完成，界面手建只是回退，[见其文档](plugins/headroom/README.md)）
 
@@ -39,9 +39,9 @@ Web Search 没有界面，只用命令与配置文件。所有命令的菜单简
 
 ## ⚙️ 图形化设置
 
-插件的图形化设置页面在 [zcode-pro](https://github.com/duanluan/zcode-pro) 中：用「ZCode Pro」启动 ZCode 后，右键点击 ZCode 侧边栏底部的设置按钮（齿轮）即可打开设置窗口，可视化管理视觉代理（zcode-vision）、rtk 压缩、Headroom 等插件项，以及一键检查并更新本市场插件。不装 zcode-pro 也能用各插件的命令和配置文件完成同样的设置。
+插件的图形化设置页面在 [zcode-pro](https://github.com/duanluan/zcode-pro) 的设置窗口里：右键点击 ZCode 侧边栏底部的设置按钮（齿轮）即可打开，可视化管理 Vision、Headroom、rtk 三个插件的设置，以及一键检查并更新本市场插件。不装 zcode-pro 也能用各插件的命令和配置文件完成同样的设置。
 
-ZCode Pro 还是 ZCode 桌面版的界面增强工具，另有项目自定义别名、切换文件夹（两项已停用：ZCode ≥ 3.16.1 已内置同类能力）、会话拖动排序与快捷切换、文件菜单增强、复制图片、界面样式微调、全局提示词等功能；不修改客户端文件，通过 ZCode Pro 快捷方式启动即可。
+ZCode Pro 是 ZCode 桌面版的增强包：壁纸引擎（图片/视频/网页）、皮肤主题、会话快捷切换、状态栏统计等三十余项界面与功能增强。不修改客户端文件，用 ZCode Pro 快捷方式或终端命令 zcode-pro 启动即可生效，从原 ZCode 入口启动就是不带增强的原版。
 
 ## 💬 交流与反馈
 

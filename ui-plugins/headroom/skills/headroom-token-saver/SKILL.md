@@ -16,12 +16,12 @@ Headroom 是本地运行的 LLM 压缩代理：ZCode → headroom(127.0.0.1:8787
 
 ## ZCode 侧接入（只能用户在界面操作：新建自定义供应商）
 
-自带的「智谱」供应商走内部 OAuth、地址写死，无法改指代理，**必须新建自定义供应商**：设置 → 模型设置 → 「+ 添加供应商」→ API 格式选 **Anthropic Messages (/v1/messages)** → Base URL `http://127.0.0.1:8787` → API Key 填原 GLM Key → 模型列表添加 `glm-5.3`、`glm-5.3-flash` → 保存并启用，聊天时选该供应商。自带「智谱」保留为回退。插件同时注册了官方 `headroom mcp serve`（CCR 取回工具）。取回原文必须用 MCP 全名 `mcp__plugin_headroom_headroom__headroom_retrieve`——裸名 `headroom_retrieve` 只是代理注入给模型的别名，ZCode 侧没有这个工具名，直接调用会报 Tool not found。
+自带的“智谱”供应商走内部 OAuth、地址写死，无法改指代理，**必须新建自定义供应商**：设置 → 模型设置 → “+ 添加供应商”→ API 格式选 **Anthropic Messages (/v1/messages)** → Base URL `http://127.0.0.1:8787` → API Key 填原 GLM Key → 模型列表添加 `glm-5.3`、`glm-5.3-flash` → 保存并启用，聊天时选该供应商。自带“智谱”保留为回退。插件同时注册了官方 `headroom mcp serve`（CCR 取回工具）。取回原文必须用 MCP 全名 `mcp__plugin_headroom_headroom__headroom_retrieve`——裸名 `headroom_retrieve` 只是代理注入给模型的别名，ZCode 侧没有这个工具名，直接调用会报 Tool not found。
 
 ## 注意
 
 - headroom 未安装时按 `uv tool install --python 3.13 "headroom-ai[all]"` → pipx → pip 顺序安装
 - 停代理会导致指向 127.0.0.1:8787 的供应商断连，提醒用户切回直连
 - 压缩默认保守（cache 模式优先保 prefix-cache 命中率）；`headroom inspect` 可对比原文与压缩结果
-- 压缩设备默认显卡优先（CUDA/MPS）；强制 CPU 或省电自动切换配 `~/.zcode/headroom.json`（`/hr-proxy backend cpu`、`/hr-proxy power battery|saver|off`，battery=拔电即 CPU、saver=仅省电档 CPU），详见插件 README「压缩设备与省电」
+- 压缩设备默认显卡优先（CUDA/MPS）；强制 CPU 或省电自动切换配 `~/.zcode/headroom.json`（`/hr-proxy backend cpu`、`/hr-proxy power battery|saver|off`，battery=拔电即 CPU、saver=仅省电档 CPU），详见插件 README“压缩设备与省电”
 - 代理在线探测用 `/livez` 或 `/health`（根路径 `/` 会挂起，别用）
