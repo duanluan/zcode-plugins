@@ -109,7 +109,7 @@ export const DEFAULT_CONFIG = {
   skipAfterFailures: 2, // 连续失败多少次后暂时跳过该代理；0 = 不跳过
   skipMinutes: 30, // 跳过多久后重试；期间任一次成功即清零计数
   // forceIntercept 不设默认值（首跑模板也不写该键，理由同 cardUi）：未设置 = 自动——
-  // 跟随宿主「模型设置」里该模型的图片开关（开 = 模型自看不指路，关 = 插件是唯一通道必指路）；
+  // 跟随宿主“模型设置”里该模型的图片开关（开 = 模型自看不指路，关 = 插件是唯一通道必指路）；
   // 显式 true = 能看图也强制拦截（双重识别换卡片）；显式 false = 能看图就不拦截。
   // 主模型是 flash 小模型时无论如何不触发（识别就是它自己，注入描述纯属重复）
 };
@@ -142,7 +142,7 @@ export function atomicWrite(file, text) {
   fs.renameSync(tmp, file);
 }
 
-// 历史默认模板（只用于识别「从未自定义过」的旧配置并自动升级为新默认）。
+// 历史默认模板（只用于识别“从未自定义过”的旧配置并自动升级为新默认）。
 // 注意：每换一版默认，旧默认要进这张表（内容原样），未自定义的用户才能自动跟上。
 const LEGACY_DEFAULTS = [
   {
@@ -176,7 +176,7 @@ const LEGACY_DEFAULTS = [
   },
 ];
 
-// 键序无关的深比较：面板/命令重写过（键顺序变化）但内容仍是旧默认的配置也能识别为「未自定义」
+// 键序无关的深比较：面板/命令重写过（键顺序变化）但内容仍是旧默认的配置也能识别为“未自定义”
 function deepEqualUnordered(a, b) {
   const canon = (v) =>
     Array.isArray(v)
@@ -300,6 +300,32 @@ function timeoutOf(proxy, cfg) {
   return DEFAULT_CONFIG.apiTimeoutMs;
 }
 
+// 档位名 → anthropic 思考预算（未列出的档位给中等值）
+const THINKING_BUDGET = { minimal: 1024, low: 2048, medium: 6144, high: 12288, xhigh: 16384, max: 24576, enabled: 8192 };
+
+// 思考档位写进请求体。与 zcode-pro translate-lib 的 applyThinking 同规则，
+// 两处各留一份（插件与 zcode-pro 独立发布，不能互相 import）
+function applyThinkingToBody(body, format, baseUrl, level) {
+  const isBigmodel = /bigmodel\.cn/.test(String(baseUrl || ''));
+  const off = !level || level === 'off';
+  if (off) {
+    // 智谱 GLM-4.5+ 默认开思考，显式关闭必须发 disabled
+    if (isBigmodel && (format === 'openai' || format === 'anthropic')) body.thinking = { type: 'disabled' };
+    return;
+  }
+  if (format === 'anthropic') {
+    const budget = THINKING_BUDGET[level] || 8192;
+    body.thinking = { type: 'enabled', budget_tokens: budget };
+    // 与 zcode-pro 侧 translate-lib 的 applyThinking 保持一致（budget + 8192）：
+    // 保证思考预算之外还有足够空间输出正文
+    body.max_tokens = Math.max(body.max_tokens || 0, budget + 8192);
+  } else if (isBigmodel) {
+    body.thinking = { type: 'enabled' };
+  } else {
+    body.reasoning_effort = level;
+  }
+}
+
 // 单次视觉调用。cfg 提供超时（apiTimeoutMs）；追问场景 prompt 由调用方给。
 export async function callProxy(proxy, { imageB64, mime, text }, cfg) {
   const apiKey = await resolveApiKey(proxy);
@@ -326,6 +352,9 @@ export async function callProxy(proxy, { imageB64, mime, text }, cfg) {
   const body = anthropic
     ? { model: proxy.model, max_tokens: 4096, messages: [{ role: 'user', content }] }
     : { model: proxy.model, messages: [{ role: 'user', content }] };
+  // 思考档位（proxy.thinking，来自 zcode-pro 设置页）：anthropic 换成思考预算、
+  // 智谱只认开/关、其他 openai 兼容端点发 reasoning_effort。off/缺省不写键
+  applyThinkingToBody(body, anthropic ? 'anthropic' : 'openai', proxy.baseUrl, proxy.thinking);
   const timeoutMs = timeoutOf(proxy, cfg);
   const runOnce = async (bodyObj) => {
     const ctrl = new AbortController();
@@ -461,7 +490,7 @@ export function mainModelKind(modelId) {
 }
 
 // 宿主是否会内联图片给该模型：读 ~/.zcode/v2 供应商配置里该模型的 inputFormat.supportsImage。
-// 桌面端「模型设置」的图片勾选框写的就是它（provider_config.json 的 modelConfigRules）。
+// 桌面端“模型设置”的图片勾选框写的就是它（provider_config.json 的 modelConfigRules）。
 // 返回 true/false；模型不在配置表里（读不到）返回 undefined，调用方按保守旧逻辑处理。
 export function modelSupportsImage(modelId) {
   const bare = String(modelIdOf(modelId) || '').toLowerCase();
@@ -525,7 +554,7 @@ export function skipByMainModel(cfg, modelId) {
 }
 
 // 供应商来源两张表：~/.zcode/v2/config.json 的 provider.<id>（优先）与
-// ~/.zcode/v2/provider_config.json 的 providerRules（桌面端「新供应商」向导写这里，id 形如 new-provider）。
+// ~/.zcode/v2/provider_config.json 的 providerRules（桌面端“新供应商”向导写这里，id 形如 new-provider）。
 export function providerTables() {
   const list = [];
   const byId = new Map();
@@ -757,7 +786,7 @@ export async function resolveProviderRef(ref, sessionId, fallbackFormat) {
       || providers.find((p) => p.name === ref || (p.aliases || []).includes(ref));
     if (!hit) {
       const names = providers.map(label).join('、');
-      throw new Error(`未找到供应商「${ref}」；可用供应商：${names || '无'}`);
+      throw new Error(`未找到供应商“${ref}”；可用供应商：${names || '无'}`);
     }
   }
   const kind = String(hit.kind || '');
@@ -790,8 +819,8 @@ export async function resolveChainProxies(cfg, sessionId) {
       if (!proxy.useProvider) return { ...proxy };
       try {
         // 代理条目的 format（下拉框）作为兜底传入：供应商缺 api.type 时用它判断请求格式；
-        // model 为空且跟随会话 = 用会话当前模型（zcode-pro 面板的「跟随当前会话
-        // 当前模型」选项；会话当前模型恰好属于跟随到的这个供应商，索引查不到
+        // model 为空且跟随会话 = 用会话当前模型（zcode-pro 面板的“跟随当前会话
+        // 当前模型”选项；会话当前模型恰好属于跟随到的这个供应商，索引查不到
         // 时退回首选视觉模型）；否则优先映射表的首选视觉模型，未命中用代理
         // 条目自己的 model
         const r = await resolveProviderRef(proxy.useProvider, sessionId, proxy.format);
@@ -898,7 +927,7 @@ export async function runChain(cfg, chainProxies, imageBuf, mime) {
     let lastName = '';
     for (const proxy of chainProxies) {
       if (proxy.__missing) {
-        errors.push(`链中代理「${proxy.name}」未定义`);
+        errors.push(`链中代理“${proxy.name}”未定义`);
         continue;
       }
       if (proxy.__resolveError) {
@@ -931,7 +960,7 @@ export async function runChain(cfg, chainProxies, imageBuf, mime) {
   // fallback：依次尝试到成功为止；连续失败过多的代理暂时跳过（ADR-0002）
   for (const proxy of chainProxies) {
     if (proxy.__missing) {
-      errors.push(`链中代理「${proxy.name}」未定义`);
+      errors.push(`链中代理“${proxy.name}”未定义`);
       continue;
     }
     if (proxy.__resolveError) {
@@ -958,7 +987,7 @@ export async function runChain(cfg, chainProxies, imageBuf, mime) {
 }
 
 // 追问：对指定图片回答一个针对性问题（vision_ask 工具用）。
-// 依次尝试链中可用代理到成功为止（fallback，不跑 pipeline 全链）；结果按「链指纹+图+问题」缓存。
+// 依次尝试链中可用代理到成功为止（fallback，不跑 pipeline 全链）；结果按“链指纹+图+问题”缓存。
 // 压缩阈值：未配置回落默认 1MB；显式 0 = 禁用压缩；其他非法值也回落默认
 export function compressThresholdBytesOf(cfg) {
   if (cfg?.compressThresholdKB === undefined) return DEFAULT_CONFIG.compressThresholdKB * 1024;
