@@ -1,6 +1,6 @@
 # zcode-plugins
 
-ZCode 插件市场，市场名 `duanluan-zcode-plugins`。围绕 token 效率与代码质量：ZCode Vision 让纯文本模型也能读懂图片，Headroom 在请求层压缩对话历史，rtk 在源头压缩命令输出，OpenCodeReview 提供 Git 变更的行级代码评审。
+ZCode 插件市场，市场名 `duanluan-zcode-plugins`。围绕 token 效率与代码质量：ZCode Vision 让纯文本模型也能读懂图片，Headroom 在请求层压缩对话历史，rtk 在源头压缩命令输出，OpenCodeReview 提供 Git 变更的行级代码评审，Web Search 补上第三方模型供应商缺失的网页搜索能力。
 
 ## ✨ 插件一览
 
@@ -10,8 +10,14 @@ ZCode 插件市场，市场名 `duanluan-zcode-plugins`。围绕 token 效率与
 | [Headroom](plugins/headroom/README.md) | 1.3.5 | 请求层压缩，省对话 token；任意供应商可接入（/hr-join），CPU/省电自动切换压缩设备 | **/hr-setup**、/hr-join、/hr-status、/hr-proxy、/hr |
 | [rtk](plugins/rtk/README.md) | 1.4.4 | 命令输出源头压缩 60-90%，压缩记录面板可查被省略的输出 | **/rtk-setup**、/rtk-status、/rtk |
 | [OpenCodeReview](plugins/open-code-review/README.md) | 1.2.2 | Git 变更行级 AI 评审，结果面板可勾选处理 | **/ocr-setup**、/ocr-delegate-review、/ocr-review、/ocr-scan、/ocr |
+| [Web Search](plugins/web-search/README.md) | 1.0.0 | 多引擎网页搜索与整页抓取，补上不支持原生搜索的供应商（43 个引擎，19 个免 key） | **/web-search-setup**、/web-search-config、/web-search-test、/web-search-doctor、/web-search |
 
-点击插件名进入该插件的完整文档。四插件均带 ZCode ≥ 3.15.1 桌面端的交互页面（识图卡片、压缩记录、输出查看、评审面板），旧版客户端自动退回纯文本行为。所有命令的菜单简介里都带用法示例；大部分参数原样传给底层命令行工具。
+点击插件名进入该插件的完整文档。交互页面（需 ZCode ≥ 3.15.1 桌面端，旧版客户端自动退回纯文本）分两种：
+
+- **侧栏面板**：headroom 的“压缩记录”、rtk 的“输出记录”，装好后常驻会话侧栏。
+- **内嵌卡片**：zcode-vision 的识图卡片（调 `vision_ask` 时出现）、OpenCodeReview 的评审面板（调 `ocr_render_review` 时出现），不调用就不出现。
+
+Web Search 没有界面，只用命令与配置文件。所有命令的菜单简介里都带用法示例；大部分参数原样传给底层命令行工具。
 
 ## 🗂️ 仓库结构（对齐上游 zcode-plugins）
 

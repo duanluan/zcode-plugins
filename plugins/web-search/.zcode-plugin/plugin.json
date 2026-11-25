@@ -1,0 +1,10 @@
+{
+  "name": "web-search",
+  "version": "1.0.0",
+  "description": "网页搜索：接入 dsh-free-search（MIT，锁定 0.9.86）的 40 多个搜索引擎与网页抓取，补上第三方供应商不支持内置 WebSearch 时的搜索能力。19 个引擎免 key 即可用（anysearch、bing、ddg、ddg-lite、searxng、exa、tavily 等），其余配 key 后可用（Brave、智谱、Perplexity、Google CSE 等）。配置：~/.zcode/web-search.json（命令 /web-search、/web-search-setup）。",
+  "author": {
+    "name": "duanluan"
+  },
+  "commands": "./commands",
+  "skills": "./skills"
+}

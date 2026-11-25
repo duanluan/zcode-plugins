@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "search": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "${ZCODE_PLUGIN_ROOT}/mcp/launch.mjs"
+      ],
+      "timeoutMs": 120000
+    }
+  }
+}

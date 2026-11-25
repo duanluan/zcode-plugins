@@ -45,6 +45,19 @@
       ]
     },
     {
+      "name": "web-search",
+      "source": "./web-search",
+      "version": "1.0.0",
+      "description": "网页搜索：接入 dsh-free-search（MIT，锁 0.9.86）的 43 个搜索引擎，19 个免 key 可用，24 个配 key 后可用。补上第三方供应商不支持内置 WebSearch 时的搜索能力。命令：/web-search（引导设置）、/web-search-config、/web-search-test、/web-search-doctor、/web-search-setup。",
+      "category": "developer-tools",
+      "tags": [
+        "search",
+        "web",
+        "fetch",
+        "mcp"
+      ]
+    },
+    {
       "name": "zcode-vision",
       "source": "./zcode-vision",
       "version": "1.7.13",

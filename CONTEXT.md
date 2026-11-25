@@ -28,6 +28,32 @@ _Avoid_: 内部工具、私有工具
 ocr 评审结果的一条结构化意见（文件、行号、严重级、摘要、详情），由 ocr_render_review 工具写入、评审面板展示。
 _Avoid_: 评审点、问题项
 
+## 网页搜索（web-search）
+
+**引擎（engine）**：
+一个具体的搜索来源（Bing、DuckDuckGo Lite 等），接收查询、返回标题、链接与摘要。
+_Avoid_: 渠道、搜索源
+
+**免 key 引擎（keyless engine）**：
+不需要 API key、直接请求公开页面的引擎，如 Bing、DuckDuckGo 的 html 与 lite 版本。
+_Avoid_: 免费引擎（“免费”容易与额度免费混在一起）
+
+**引擎回退（engine fallback）**：
+一个引擎失败时依次换下一个，直到拿到结果或全部失败；失败分为额度、鉴权、反爬、网络、响应异常几类，反爬会让整个引擎家族按出口 IP 冷却一段时间。
+_Avoid_: 轮询、故障转移
+
+**自有搜索工具（own search tool）**：
+插件通过 MCP 提供、名字形如 `mcp__plugin_web-search_search__web_search` 的搜索工具，与内置 WebSearch 并存。
+_Avoid_: 替代搜索（内置工具无法被替代，见 ADR-0009）
+
+**薄启动器（thin launcher）**：
+插件里读取配置文件、设置环境变量、再拉起上游 MCP 服务进程的脚本。上游只认环境变量，这一层负责把配置文件翻译过去。
+_Avoid_: 代理、桥（bridge 在 headroom 语境另有含义）
+
+**工具搜索（tool search）**：
+ZCode 官方设置 `toolSearchMode`，控制 MCP 工具是先只发送名称与描述、用到时再取完整 schema，还是一次性发全。开关是全局的，新建会话才生效。
+_Avoid_: 延迟加载（指机制时可用，指这个设置时用“工具搜索”）
+
 ## 视觉识别（zcode-vision）
 
 **视觉代理（vision agent）**：

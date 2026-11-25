@@ -1,0 +1,6 @@
+{
+  "name": "@duanluan/plugin-web-search",
+  "version": "1.0.0",
+  "private": true,
+  "description": "网页搜索：多引擎搜索与网页抓取，补上第三方供应商没有的搜索能力。"
+}
